@@ -26,8 +26,8 @@ impl AffinePoint {
     /// Identity element
     pub(crate) fn identity() -> AffinePoint {
         AffinePoint {
-            x: FieldElement::zero(),
-            y: FieldElement::one(),
+            x: FieldElement::ZERO,
+            y: FieldElement::ONE,
         }
     }
     /// Checks if the AffinePoint is on the TwistedEdwards curve
@@ -35,7 +35,7 @@ impl AffinePoint {
         let xx = self.x.square();
         let yy = self.y.square();
 
-        yy - xx == FieldElement::one() + (TWISTED_D * xx * yy)
+        yy - xx == FieldElement::ONE + (TWISTED_D * xx * yy)
     }
     // Negates an AffinePoint
     pub(crate) fn negate(&self) -> AffinePoint {
@@ -47,10 +47,10 @@ impl AffinePoint {
     /// Adds an AffinePoint onto an AffinePoint
     pub(crate) fn add(&self, other: &AffinePoint) -> AffinePoint {
         let y_numerator = self.y * other.y + self.x * other.x;
-        let y_denominator = FieldElement::one() - TWISTED_D * self.x * other.x * self.y * other.y;
+        let y_denominator = FieldElement::ONE - TWISTED_D * self.x * other.x * self.y * other.y;
 
         let x_numerator = self.x * other.y + self.y * other.x;
-        let x_denominator = FieldElement::one() + TWISTED_D * self.x * other.x * self.y * other.y;
+        let x_denominator = FieldElement::ONE + TWISTED_D * self.x * other.x * self.y * other.y;
 
         let x = x_numerator * x_denominator.invert();
         let y = y_numerator * y_denominator.invert();
@@ -61,7 +61,7 @@ impl AffinePoint {
         ExtensiblePoint {
             X: self.x,
             Y: self.y,
-            Z: FieldElement::one(),
+            Z: FieldElement::ONE,
             T1: self.x,
             T2: self.y,
         }
@@ -111,9 +111,9 @@ impl AffineNielsPoint {
     /// Returns the identity element for an AffineNielsPoint
     pub(crate) fn identity() -> AffineNielsPoint {
         AffineNielsPoint {
-            y_plus_x: FieldElement::one(),
-            y_minus_x: FieldElement::one(),
-            td: FieldElement::zero(),
+            y_plus_x: FieldElement::ONE,
+            y_minus_x: FieldElement::ONE,
+            td: FieldElement::ZERO,
         }
     }
     /// Converts an AffineNielsPoint to an ExtendedPoint
@@ -121,7 +121,7 @@ impl AffineNielsPoint {
         ExtendedPoint {
             X: self.y_plus_x - self.y_minus_x,
             Y: self.y_minus_x + self.y_plus_x,
-            Z: FieldElement::one(),
+            Z: FieldElement::ONE,
             T: self.y_plus_x * self.y_minus_x,
         }
     }

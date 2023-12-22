@@ -2,6 +2,8 @@ use fiat_crypto::p448_solinas_64::*;
 
 use std::ops::{Add, Index, IndexMut, Mul, Sub};
 use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable};
+use crate::FieldBytes;
+
 /// FieldElement56 represents an element in the field
 /// q = 2^448 - 2^224 -1
 ///
@@ -38,7 +40,7 @@ impl IndexMut<usize> for FieldElement56 {
 impl Mul<&FieldElement56> for &FieldElement56 {
     type Output = FieldElement56;
     fn mul(self, rhs: &FieldElement56) -> Self::Output {
-        let mut result = FieldElement56::zero();
+        let mut result = FieldElement56::ZERO;
         let mut self_loose = fiat_p448_loose_field_element([0; 8]);
         fiat_p448_relax(&mut self_loose, &self.0);
         let mut rhs_loose = fiat_p448_loose_field_element([0; 8]);
@@ -65,7 +67,7 @@ impl Add<FieldElement56> for FieldElement56 {
     fn add(self, rhs: FieldElement56) -> Self::Output {
         let mut result_loose = fiat_p448_loose_field_element([0; 8]);
         fiat_p448_add(&mut result_loose, &self.0, &rhs.0);
-        let mut result = FieldElement56::zero();
+        let mut result = FieldElement56::ZERO;
         fiat_p448_carry(&mut result.0, &result_loose);
         result
     }
@@ -75,7 +77,7 @@ impl Sub<FieldElement56> for FieldElement56 {
     fn sub(self, rhs: FieldElement56) -> Self::Output {
         let mut result_loose = fiat_p448_loose_field_element([0; 8]);
         fiat_p448_sub(&mut result_loose, &self.0, &rhs.0);
-        let mut result = FieldElement56::zero();
+        let mut result = FieldElement56::ZERO;
         fiat_p448_carry(&mut result.0, &result_loose);
         result
     }
@@ -94,7 +96,7 @@ impl ConditionallySelectable for FieldElement56 {
         b: &FieldElement56,
         choice: Choice,
     ) -> FieldElement56 {
-        let mut result = FieldElement56::zero();
+        let mut result = FieldElement56::ZERO;
         fiat_p448_selectznz(&mut (result.0).0, choice.unwrap_u8(), &(a.0).0, &(b.0).0);
         result
     }
@@ -102,7 +104,7 @@ impl ConditionallySelectable for FieldElement56 {
 
 impl Default for FieldElement56 {
     fn default() -> FieldElement56 {
-        FieldElement56::zero()
+        FieldElement56::ZERO
     }
 }
 
@@ -111,14 +113,9 @@ impl Default for FieldElement56 {
 ///
 
 impl FieldElement56 {
-    pub const fn zero() -> FieldElement56 {
-        FieldElement56(fiat_p448_tight_field_element([0; 8]))
-    }
-    pub const fn one() -> FieldElement56 {
-        FieldElement56(fiat_p448_tight_field_element([1, 0, 0, 0, 0, 0, 0, 0]))
-    }
-    pub fn minus_one() -> FieldElement56 {
-        FieldElement56(fiat_p448_tight_field_element([
+    pub const ZERO: FieldElement56 = FieldElement56(fiat_p448_tight_field_element([0; 8]));
+    pub const ONE: FieldElement56 = FieldElement56(fiat_p448_tight_field_element([1, 0, 0, 0, 0, 0, 0, 0]));
+    pub const MINUS_ONE: FieldElement56 = FieldElement56(fiat_p448_tight_field_element([
             144115188075855869,
             144115188075855870,
             144115188075855870,
@@ -127,8 +124,7 @@ impl FieldElement56 {
             144115188075855870,
             144115188075855870,
             144115188075855870,
-        ]))
-    }
+        ]));
 }
 
 ///
@@ -154,7 +150,7 @@ impl FieldElement56 {
     /// We parse in chunks of 56 bytes, the first 28 bytes will contain the i'th limb
     /// and the second 28 bytes will contain the (2i+1)'th limb
     pub(crate) fn from_bytes(bytes: &[u8; 56]) -> FieldElement56 {
-        let mut res = FieldElement56::zero();
+        let mut res = FieldElement56::ZERO;
         fiat_p448_from_bytes(&mut res.0, bytes);
         res
     }
@@ -172,7 +168,7 @@ impl FieldElement56 {
     pub(crate) fn square(&self) -> FieldElement56 {
         let mut self_loose = fiat_p448_loose_field_element([0; 8]);
         fiat_p448_relax(&mut self_loose, &self.0);
-        let mut result = FieldElement56::zero();
+        let mut result = FieldElement56::ZERO;
         fiat_p448_carry_square(&mut result.0, &self_loose);
         result
     }
@@ -180,7 +176,7 @@ impl FieldElement56 {
     pub(crate) fn negate(&self) -> FieldElement56 {
         let mut result_loose = fiat_p448_loose_field_element([0; 8]);
         fiat_p448_opp(&mut result_loose, &self.0);
-        let mut result = FieldElement56::zero();
+        let mut result = FieldElement56::ZERO;
         fiat_p448_carry(&mut result.0, &result_loose);
         result
     }
@@ -202,7 +198,7 @@ mod tests {
 
     #[test]
     fn test_negate() {
-        let x = FieldElement56::zero();
+        let x = FieldElement56::ZERO;
         let y = x.negate();
         assert_eq!(y.to_bytes(), [0u8; 56]);
     }

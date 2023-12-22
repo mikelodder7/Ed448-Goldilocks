@@ -66,12 +66,12 @@ mod test {
         let x = TWISTED_EDWARDS_BASE_POINT;
 
         // Test that 1 * P = P
-        let exp = variable_base(&x, &Scalar::from(1));
+        let exp = variable_base(&x, &Scalar::from(1u8));
         assert!(x == exp);
         // Test that 2 * (P + P) = 4 * P
         let x_ext = x.to_extensible();
         let expected_two_x = x_ext.add_extensible(&x_ext).double();
-        let got = variable_base(&x, &Scalar::from(4));
+        let got = variable_base(&x, &Scalar::from(4u8));
         assert!(expected_two_x.to_extended() == got);
     }
 }

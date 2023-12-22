@@ -76,7 +76,7 @@ impl Mul<&Scalar> for &MontgomeryPoint {
         let mut x0 = ProjectiveMontgomeryPoint::identity();
         let mut x1 = ProjectiveMontgomeryPoint {
             U: affine_u,
-            W: FieldElement::one(),
+            W: FieldElement::ONE,
         };
 
         let bits = scalar.bits();
@@ -131,7 +131,7 @@ impl MontgomeryPoint {
     pub fn to_projective(&self) -> ProjectiveMontgomeryPoint {
         ProjectiveMontgomeryPoint {
             U: FieldElement::from_bytes(&self.0),
-            W: FieldElement::one(),
+            W: FieldElement::ONE,
         }
     }
 }
@@ -190,8 +190,8 @@ fn differential_add_and_double(
 impl ProjectiveMontgomeryPoint {
     pub fn identity() -> ProjectiveMontgomeryPoint {
         ProjectiveMontgomeryPoint {
-            U: FieldElement::one(),
-            W: FieldElement::zero(),
+            U: FieldElement::ONE,
+            W: FieldElement::ZERO,
         }
     }
 
@@ -208,7 +208,7 @@ mod tests {
 
     #[test]
     fn test_montgomery_edwards() {
-        let scalar = Scalar::from(200);
+        let scalar = Scalar::from(200u32);
         use crate::constants::GOLDILOCKS_BASE_POINT as bp;
 
         // Montgomery scalar mul

@@ -1,8 +1,13 @@
-use std::ops::{Add, Index, IndexMut, Mul, Sub};
+use core::iter::{Product, Sum};
+use core::ops::{Add, AddAssign, Index, IndexMut, Mul, MulAssign, Sub, SubAssign, Neg};
 
-#[cfg(feature = "rand")]
 use rand_core::{CryptoRng, RngCore};
-use subtle::{Choice, ConstantTimeEq};
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
+use elliptic_curve::{
+    ff::{Field, helpers},
+    generic_array::{GenericArray, typenum::{U57, U114}},
+    PrimeField,
+};
 
 use crate::constants;
 
@@ -11,6 +16,9 @@ use crate::constants;
 /// We can therefore use 14 saturated 32-bit limbs
 #[derive(Debug, Copy, Clone)]
 pub struct Scalar(pub(crate) [u32; 14]);
+
+pub type ScalarBytes = GenericArray<u8, U57>;
+pub type WideScalarBytes = GenericArray<u8, U114>;
 
 pub(crate) const MODULUS: Scalar = constants::BASEPOINT_ORDER;
 
@@ -30,16 +38,51 @@ impl ConstantTimeEq for Scalar {
     }
 }
 
+impl ConditionallySelectable for Scalar {
+    fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
+        let mut nums = [0u32; 14];
+        for i in 0..14 {
+            nums[i] = u32::conditional_select(&a.0[i], &b.0[i], choice);
+        }
+        Self(nums)
+    }
+}
+
 impl PartialEq for Scalar {
     fn eq(&self, other: &Scalar) -> bool {
         self.ct_eq(&other).into()
     }
 }
+
 impl Eq for Scalar {}
+
+impl From<u8> for Scalar {
+    fn from(a: u8) -> Self {
+        Scalar([a as u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    }
+}
+
+impl From<u16> for Scalar {
+    fn from(a: u16) -> Self {
+        Scalar([a as u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    }
+}
 
 impl From<u32> for Scalar {
     fn from(a: u32) -> Scalar {
         Scalar([a, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    }
+}
+
+impl From<u64> for Scalar {
+    fn from(a: u64) -> Self {
+        Scalar([a as u32, (a >> 32) as u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    }
+}
+
+impl From<u128> for Scalar {
+    fn from(a: u128) -> Self {
+        Scalar([a as u32, (a >> 32) as u32, (a >> 64) as u32, (a >> 96) as u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     }
 }
 
@@ -49,6 +92,7 @@ impl Index<usize> for Scalar {
         &self.0[index]
     }
 }
+
 impl IndexMut<usize> for Scalar {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.0[index]
@@ -56,6 +100,29 @@ impl IndexMut<usize> for Scalar {
 }
 
 // Trait implementations
+impl Add<&Scalar> for &Scalar {
+    type Output = Scalar;
+
+    fn add(self, rhs: &Scalar) -> Self::Output {
+        add(self, rhs)
+    }
+}
+
+impl Add<&Scalar> for Scalar {
+    type Output = Scalar;
+
+    fn add(self, rhs: &Scalar) -> Self::Output {
+        add(&self, rhs)
+    }
+}
+
+impl Add<Scalar> for &Scalar {
+    type Output = Scalar;
+
+    fn add(self, rhs: Scalar) -> Self::Output {
+       add(self, &rhs)
+    }
+}
 
 impl Add<Scalar> for Scalar {
     type Output = Scalar;
@@ -63,32 +130,316 @@ impl Add<Scalar> for Scalar {
         add(&self, &rhs)
     }
 }
-impl Mul<Scalar> for Scalar {
+
+impl AddAssign for Scalar {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = *self + rhs
+    }
+}
+
+impl AddAssign<&Scalar> for Scalar {
+    fn add_assign(&mut self, rhs: &Scalar) {
+        *self = *self + rhs
+    }
+}
+
+impl Mul<&Scalar> for &Scalar {
     type Output = Scalar;
-    fn mul(self, rhs: Scalar) -> Self::Output {
-        let unreduced = montgomery_multiply(&self, &rhs);
+
+    fn mul(self, rhs: &Scalar) -> Self::Output {
+        let unreduced = montgomery_multiply(self, rhs);
         montgomery_multiply(&unreduced, &R2)
     }
 }
+
+impl Mul<&Scalar> for Scalar {
+    type Output = Scalar;
+
+    fn mul(self, rhs: &Scalar) -> Self::Output {
+        &self * rhs
+    }
+}
+
+impl Mul<Scalar> for &Scalar {
+    type Output = Scalar;
+
+    fn mul(self, rhs: Scalar) -> Self::Output {
+        self * &rhs
+    }
+}
+
+impl Mul<Scalar> for Scalar {
+    type Output = Scalar;
+    fn mul(self, rhs: Scalar) -> Self::Output {
+        &self * &rhs
+    }
+}
+
+impl MulAssign for Scalar {
+    fn mul_assign(&mut self, rhs: Self) {
+        *self = *self * rhs
+    }
+}
+
+impl MulAssign<&Scalar> for Scalar {
+    fn mul_assign(&mut self, rhs: &Scalar) {
+        *self = *self * rhs
+    }
+}
+
+impl Sub<&Scalar> for &Scalar {
+    type Output = Scalar;
+
+    fn sub(self, rhs: &Scalar) -> Self::Output {
+        sub_extra(self, rhs, 0)
+    }
+}
+
+impl Sub<&Scalar> for Scalar {
+    type Output = Scalar;
+
+    fn sub(self, rhs: &Scalar) -> Self::Output {
+        sub_extra(&self, rhs, 0)
+    }
+}
+
+impl Sub<Scalar> for &Scalar {
+    type Output = Scalar;
+
+    fn sub(self, rhs: Scalar) -> Self::Output {
+        sub_extra(self, &rhs, 0)
+    }
+}
+
 impl Sub<Scalar> for Scalar {
     type Output = Scalar;
+
     fn sub(self, rhs: Scalar) -> Self::Output {
         sub_extra(&self, &rhs, 0)
     }
 }
+
+impl SubAssign for Scalar {
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = *self - rhs
+    }
+}
+
+impl SubAssign<&Scalar> for Scalar {
+    fn sub_assign(&mut self, rhs: &Scalar) {
+        *self = *self - rhs
+    }
+}
+
+impl Neg for Scalar {
+    type Output = Scalar;
+
+    fn neg(self) -> Self::Output {
+        -&self
+    }
+}
+
+impl Neg for &Scalar {
+    type Output = Scalar;
+
+    fn neg(self) -> Self::Output {
+        Scalar::ZERO - self
+    }
+}
+
 impl Default for Scalar {
     fn default() -> Scalar {
-        Scalar::zero()
+        Scalar::ZERO
+    }
+}
+
+impl Sum for Scalar {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        let mut acc = Scalar::ZERO;
+        for s in iter {
+            acc += s;
+        }
+        acc
+    }
+}
+
+impl<'a> Sum<&'a Scalar> for Scalar {
+    fn sum<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
+        let mut acc = Scalar::ZERO;
+        for s in iter {
+            acc += s;
+        }
+        acc
+    }
+}
+
+impl Product for Scalar {
+    fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
+        let mut acc = Scalar::ONE;
+        for s in iter {
+            acc *= s;
+        }
+        acc
+    }
+}
+
+impl<'a> Product<&'a Scalar> for Scalar {
+    fn product<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
+        let mut acc = Scalar::ONE;
+        for s in iter {
+            acc *= s;
+        }
+        acc
+    }
+}
+
+impl Field for Scalar {
+    const ZERO: Self = Self::ZERO;
+    const ONE: Self = Self::ONE;
+
+    fn random(mut rng: impl RngCore) -> Self {
+        let mut seed = WideScalarBytes::default();
+        rng.fill_bytes(&mut seed);
+        Scalar::from_bytes_mod_order_wide(&seed)
+    }
+
+    fn square(&self) -> Self {
+        self.square()
+    }
+
+    fn double(&self) -> Self {
+        self + self
+    }
+
+    fn invert(&self) -> CtOption<Self> {
+        CtOption::new(self.invert(), !self.ct_eq(&Self::ZERO))
+    }
+
+    fn sqrt_ratio(num: &Self, div: &Self) -> (Choice, Self) {
+        helpers::sqrt_ratio_generic(num, div)
+    }
+}
+
+impl PrimeField for Scalar {
+    type Repr = ScalarBytes;
+
+    fn from_repr(repr: Self::Repr) -> CtOption<Self> {
+        Self::from_canonical_bytes(repr)
+    }
+
+    fn to_repr(&self) -> Self::Repr {
+        self.to_bytes_rfc_8032()
+    }
+
+    fn is_odd(&self) -> Choice {
+        Choice::from((self.0[0] & 1) as u8)
+    }
+
+    const MODULUS: &'static str = "3fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3";
+    const NUM_BITS: u32 = 448;
+    const CAPACITY: u32 = Self::NUM_BITS - 1;
+    const TWO_INV: Self = Self([
+        0x55ac227a, 0x91bc6149, 0x46e2c7aa, 0x10b66139, 0xd76b1b48, 0xe2276da4, 0xbe6511f4,
+        0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0x1fffffff,
+    ]);
+    const MULTIPLICATIVE_GENERATOR: Self = Self([7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const S: u32 = 1;
+    const ROOT_OF_UNITY: Self = Self([
+        0xbdc63ffe, 0xa3a90a90, 0x8330209f, 0x8990470e, 0x3f5c425d, 0x63ea6e70, 0xc2efc65d,
+        0xf9b5c014, 0x1d478bc5, 0xb26d8405, 0x59cd81e2, 0x5a1f2fb9, 0x838ee01b, 0x2935b8ce,
+    ]);
+    const ROOT_OF_UNITY_INV: Self = Self([
+        0x284d98cd, 0x37bc82e8, 0x2e8ae84c, 0xe42ddad7, 0xaea94041, 0x1a21435e, 0x1b644703,
+        0x2c07bf6c, 0x330b2d96, 0x1f0163dc, 0x8b6172cd, 0x8925b1ee, 0x6717df40, 0x1f87f25a,
+    ]);
+    const DELTA: Self = Self([
+        0x961, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ]);
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for Scalar {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
+        use serde::ser::SerializeTuple;
+
+        let bytes = self.to_bytes_rfc_8032();
+        let mut tupler = s.serialize_tuple(bytes.len())?;
+        for i in &bytes {
+            tupler.serialize_element(i)?;
+        }
+        tupler.end()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Scalar {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error> where D: serde::Deserializer<'de> {
+        use serde::de::{Visitor, SeqAccess};
+
+        struct ScalarVisitor;
+
+        impl<'de> Visitor<'de> for ScalarVisitor {
+            type Value = Scalar;
+
+            fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                write!(f, "a sequence of 57 little endian bytes")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error> where A: SeqAccess<'de> {
+                let mut scalar = [0u8; 57];
+                for (i, v) in scalar.iter_mut().enumerate() {
+                    *v = seq.next_element()?
+                        .ok_or_else(|| serde::de::Error::invalid_length(i, &"expected 57 bytes"))?;
+                }
+                Scalar::from_canonical_bytes(scalar)
+                    .ok_or_else(|| serde::de::Error::custom("scalar was not canonically encoded"))
+            }
+        }
+
+        d.deserialize_tuple(57, ScalarVisitor)
+    }
+}
+
+#[cfg(feature = "zeroize")]
+impl zeroize::DefaultIsZeroes for Scalar {}
+
+impl core::fmt::LowerHex for Scalar {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let tmp = self.to_bytes_rfc_8032();
+        for &b in tmp.iter() {
+            write!(f, "{:02x}", b)?;
+        }
+        Ok(())
+    }
+}
+
+impl core::fmt::UpperHex for Scalar {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let tmp = self.to_bytes_rfc_8032();
+        for &b in tmp.iter() {
+            write!(f, "{:02X}", b)?;
+        }
+        Ok(())
     }
 }
 
 impl Scalar {
-    pub const fn one() -> Scalar {
-        Scalar([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    pub const ONE: Scalar = Scalar([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+    pub const TWO: Scalar = Scalar([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+    pub const ZERO: Scalar = Scalar([0; 14]);
+
+    pub fn is_zero(&self) -> Choice {
+        let mut res = 0i32;
+        let mut i = 0;
+        while i < 14 {
+            res |= self.0[i] as i32;
+            i += 1;
+        }
+        Choice::from((((res | -res) >> 31) + 1) as u8)
     }
-    pub const fn zero() -> Scalar {
-        Scalar([0; 14])
-    }
+
     /// Divides a scalar by four without reducing mod p
     /// This is used in the 2-isogeny when mapping points from Ed448-Goldilocks
     /// to Twisted-Goldilocks
@@ -146,6 +497,7 @@ impl Scalar {
         // XXX :We are doing LSB first
         bits
     }
+
     pub fn from_bytes(bytes: [u8; 56]) -> Scalar {
         let load7 = |input: &[u8]| -> u64 {
             (input[0] as u64)
@@ -154,7 +506,7 @@ impl Scalar {
                 | ((input[3] as u64) << 24)
         };
 
-        let mut res = Scalar::zero();
+        let mut res = Scalar::ZERO;
         for i in 0..14 {
             // Load i'th 32 bytes
             let out = load7(&bytes[i * 4..]);
@@ -163,6 +515,7 @@ impl Scalar {
 
         res
     }
+
     pub fn to_bytes(&self) -> [u8; 56] {
         let mut res = [0u8; 56];
 
@@ -175,12 +528,14 @@ impl Scalar {
         }
         res
     }
-    fn square(&self) -> Scalar {
+
+    pub fn square(&self) -> Scalar {
         montgomery_multiply(&self, &self)
     }
+
     pub fn invert(&self) -> Self {
-        let mut pre_comp = [Scalar::zero(); 8];
-        let mut result = Scalar::zero();
+        let mut pre_comp = [Scalar::ZERO; 8];
+        let mut result = Scalar::ZERO;
 
         let scalar_window_bits = 3;
         let last = (1 << scalar_window_bits) - 1;
@@ -243,12 +598,12 @@ impl Scalar {
 
         // de-montgomerize and return result
 
-        montgomery_multiply(&result, &Scalar::one())
+        montgomery_multiply(&result, &Scalar::ONE)
     }
 
     /// Halves a Scalar modulo the prime
     pub fn halve(&self) -> Self {
-        let mut result = Scalar::zero();
+        let mut result = Scalar::ZERO;
 
         let mask = 0u32.wrapping_sub(self[0] & 1);
         let mut chain = 0u64;
@@ -274,47 +629,41 @@ impl Scalar {
     /// - `Some(s)`, where `s` is the `Scalar` corresponding to `bytes`,
     ///   if `bytes` is a canonical byte representation;
     /// - `None` if `bytes` is not a canonical byte representation.
-    pub fn from_canonical_bytes(bytes: [u8; 57]) -> Option<Scalar> {
+    pub fn from_canonical_bytes(bytes: ScalarBytes) -> CtOption<Scalar> {
         // Check that the 10 high bits are not set
-        if bytes[56] != 0u8 || (bytes[55] >> 6) != 0u8 {
-            return None;
-        }
-        let bytes: [u8; 56] = std::array::from_fn(|i| bytes[i]);
+        let is_valid = is_zero(bytes[56]) | is_zero(bytes[55] >> 6);
+        let bytes: [u8; 56] = core::array::from_fn(|i| bytes[i]);
         let candidate = Scalar::from_bytes(bytes);
 
         let reduced = sub_extra(&candidate, &MODULUS, 0);
 
-        if candidate == reduced {
-            Some(candidate)
-        } else {
-            None
-        }
+        CtOption::new(candidate, candidate.ct_eq(&reduced) & is_valid)
     }
 
     /// Serialize the scalar into 57 bytes, per RFC 8032.
     /// Byte 56 will always be zero.
-    pub fn to_bytes_rfc_8032(&self) -> [u8; 57] {
-        let bytes = self.to_bytes();
-        let res: [u8; 57] = std::array::from_fn(|i| if i < 56 { bytes[i] } else { 0 });
-        res
+    pub fn to_bytes_rfc_8032(&self) -> ScalarBytes {
+        let mut bytes = ScalarBytes::default();
+        bytes[1..].copy_from_slice(&self.to_bytes());
+        bytes
     }
 
     /// Construct a `Scalar` by reducing a 912-bit little-endian integer
     /// modulo the group order ℓ.
-    pub fn from_bytes_mod_order_wide(input: &[u8; 114]) -> Scalar {
-        let lo: [u8; 56] = std::array::from_fn(|i| input[i]);
+    pub fn from_bytes_mod_order_wide(input: &WideScalarBytes) -> Scalar {
+        let lo: [u8; 56] = core::array::from_fn(|i| input[i]);
         let lo = Scalar::from_bytes(lo);
         // montgomery_multiply computes ((a*b)/R) mod ℓ, thus this computes
         // ((lo*R)/R) = lo mod ℓ
         let lo = montgomery_multiply(&lo, &R);
 
-        let hi: [u8; 56] = std::array::from_fn(|i| input[i + 56]);
+        let hi: [u8; 56] = core::array::from_fn(|i| input[i + 56]);
         let hi = Scalar::from_bytes(hi);
         // ((hi*R^2)/R) = hi * R mod ℓ
         let hi = montgomery_multiply(&hi, &R2);
 
         // There are only two bytes left, build an array with them and pad with zeroes
-        let top: [u8; 56] = std::array::from_fn(|i| if i < 2 { input[i + 112] } else { 0 });
+        let top: [u8; 56] = core::array::from_fn(|i| if i < 2 { input[i + 112] } else { 0 });
         let top = Scalar::from_bytes(top);
         // ((top*R^2)/R) = top * R mod ℓ
         let top = montgomery_multiply(&top, &R2);
@@ -334,19 +683,19 @@ impl Scalar {
     /// # Returns
     ///
     /// A random scalar within ℤ/lℤ.
-    #[cfg(feature = "rand")]
     pub fn random<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
-        let mut scalar_bytes = [0u8; 114];
+        let mut scalar_bytes = WideScalarBytes::default();
         rng.fill_bytes(&mut scalar_bytes);
         Scalar::from_bytes_mod_order_wide(&scalar_bytes)
     }
 }
+
 /// Computes a + b mod p
-pub fn add(a: &Scalar, b: &Scalar) -> Scalar {
+pub(crate) fn add(a: &Scalar, b: &Scalar) -> Scalar {
     // First add the two Scalars together
     // Since our limbs are saturated, the result of each
     // limb being added can be a 33-bit integer so we propagate the carry bit
-    let mut result = Scalar::zero();
+    let mut result = Scalar::ZERO;
 
     // a + b
     let mut chain = 0u64;
@@ -366,7 +715,7 @@ pub fn add(a: &Scalar, b: &Scalar) -> Scalar {
 /// Compute a - b mod p
 /// Computes a - b and conditionally computes the modulus if the result was negative
 fn sub_extra(a: &Scalar, b: &Scalar, carry: u32) -> Scalar {
-    let mut result = Scalar::zero();
+    let mut result = Scalar::ZERO;
 
     // a - b
     let mut chain = 0i64;
@@ -400,7 +749,7 @@ fn sub_extra(a: &Scalar, b: &Scalar, carry: u32) -> Scalar {
 fn montgomery_multiply(x: &Scalar, y: &Scalar) -> Scalar {
     const MONTGOMERY_FACTOR: u32 = 0xae918bc5;
 
-    let mut result = Scalar::zero();
+    let mut result = Scalar::ZERO;
     let mut carry = 0u32;
 
     // (a * b ) + c
@@ -432,6 +781,12 @@ fn montgomery_multiply(x: &Scalar, y: &Scalar) -> Scalar {
 
     sub_extra(&result, &MODULUS, carry)
 }
+
+fn is_zero(b: u8) -> Choice {
+    let res = b as i8;
+    Choice::from((((res | -res) >> 7) + 1) as u8)
+}
+
 #[cfg(test)]
 mod test {
     use hex_literal::hex;
@@ -439,25 +794,25 @@ mod test {
 
     #[test]
     fn test_basic_add() {
-        let five = Scalar::from(5);
-        let six = Scalar::from(6);
+        let five = Scalar::from(5u8);
+        let six = Scalar::from(6u8);
 
-        assert_eq!(five + six, Scalar::from(11))
+        assert_eq!(five + six, Scalar::from(11u8))
     }
 
     #[test]
     fn test_basic_sub() {
-        let ten = Scalar::from(10);
-        let five = Scalar::from(5);
-        assert_eq!(ten - five, Scalar::from(5))
+        let ten = Scalar::from(10u8);
+        let five = Scalar::from(5u8);
+        assert_eq!(ten - five, Scalar::from(5u8))
     }
 
     #[test]
     fn test_basic_mul() {
-        let ten = Scalar::from(10);
-        let five = Scalar::from(5);
+        let ten = Scalar::from(10u8);
+        let five = Scalar::from(5u8);
 
-        assert_eq!(ten * five, Scalar::from(50))
+        assert_eq!(ten * five, Scalar::from(50u8))
     }
 
     #[test]
@@ -495,25 +850,25 @@ mod test {
 
     #[test]
     fn test_sanity_check_index_mut() {
-        let mut x = Scalar::one();
+        let mut x = Scalar::ONE;
         x[0] = 2u32;
-        assert_eq!(x, Scalar::from(2))
+        assert_eq!(x, Scalar::from(2u8))
     }
     #[test]
     fn test_basic_halving() {
-        let eight = Scalar::from(8);
-        let four = Scalar::from(4);
-        let two = Scalar::from(2);
+        let eight = Scalar::from(8u8);
+        let four = Scalar::from(4u8);
+        let two = Scalar::from(2u8);
         assert_eq!(eight.halve(), four);
         assert_eq!(four.halve(), two);
-        assert_eq!(two.halve(), Scalar::one());
+        assert_eq!(two.halve(), Scalar::ONE);
     }
 
     #[test]
     fn test_equals() {
-        let a = Scalar::from(5);
-        let b = Scalar::from(5);
-        let c = Scalar::from(10);
+        let a = Scalar::from(5u8);
+        let b = Scalar::from(5u8);
+        let c = Scalar::from(10u8);
         assert!(a == b);
         assert!(!(a == c))
     }
@@ -521,14 +876,14 @@ mod test {
     #[test]
     fn test_basic_inversion() {
         // Test inversion from 2 to 100
-        for i in 1..=100 {
+        for i in 1..=100u8 {
             let x = Scalar::from(i);
             let x_inv = x.invert();
-            assert_eq!(x_inv * x, Scalar::one())
+            assert_eq!(x_inv * x, Scalar::ONE)
         }
 
         // Inversion of zero is zero
-        let zero = Scalar::zero();
+        let zero = Scalar::ZERO;
         let expected_zero = zero.invert();
         assert_eq!(expected_zero, zero)
     }
@@ -552,23 +907,23 @@ mod test {
     #[test]
     fn test_from_canonical_bytes() {
         // ff..ff should fail
-        let mut bytes: [u8; 57] = hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        let mut bytes = ScalarBytes::clone_from_slice(&hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"));
         bytes.reverse();
         let s = Scalar::from_canonical_bytes(bytes);
-        assert_eq!(s, None);
+        assert!(<Choice as Into<bool>>::into(s.is_none()));
 
         // n should fail
-        let mut bytes: [u8; 57] = hex!("003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3");
+        let mut bytes = ScalarBytes::clone_from_slice(&hex!("003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3"));
         bytes.reverse();
         let s = Scalar::from_canonical_bytes(bytes);
-        assert_eq!(s, None);
+        assert!(<Choice as Into<bool>>::into(s.is_none()));
 
         // n-1 should work
-        let mut bytes: [u8; 57] = hex!("003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f2");
+        let mut bytes = ScalarBytes::clone_from_slice(&hex!("003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f2"));
         bytes.reverse();
         let s = Scalar::from_canonical_bytes(bytes);
-        match s {
-            Some(s) => assert_eq!(s, Scalar::zero() - Scalar::one()),
+        match Option::<Scalar>::from(s) {
+            Some(s) => assert_eq!(s, Scalar::ZERO - Scalar::ONE),
             None => panic!("should not return None"),
         };
     }
@@ -576,28 +931,28 @@ mod test {
     #[test]
     fn test_from_bytes_mod_order_wide() {
         // n should become 0
-        let mut bytes: [u8; 114] = hex!("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3");
+        let mut bytes = WideScalarBytes::clone_from_slice(&hex!("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3"));
         bytes.reverse();
         let s = Scalar::from_bytes_mod_order_wide(&bytes);
-        assert_eq!(s, Scalar::zero());
+        assert_eq!(s, Scalar::ZERO);
 
         // n-1 should stay the same
-        let mut bytes: [u8; 114] = hex!("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f2");
+        let mut bytes = WideScalarBytes::clone_from_slice(&hex!("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f2"));
         bytes.reverse();
         let s = Scalar::from_bytes_mod_order_wide(&bytes);
-        assert_eq!(s, Scalar::zero() - Scalar::one());
+        assert_eq!(s, Scalar::ZERO - Scalar::ONE);
 
         // n+1 should become 1
-        let mut bytes: [u8; 114] = hex!("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f4");
+        let mut bytes = WideScalarBytes::clone_from_slice(&hex!("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f4"));
         bytes.reverse();
         let s = Scalar::from_bytes_mod_order_wide(&bytes);
-        assert_eq!(s, Scalar::one());
+        assert_eq!(s, Scalar::ONE);
 
         // 2^912-1 should become 0x2939f823b7292052bcb7e4d070af1a9cc14ba3c47c44ae17cf72c985bb24b6c520e319fb37a63e29800f160787ad1d2e11883fa931e7de81
-        let mut bytes: [u8; 114] = hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        let mut bytes = WideScalarBytes::clone_from_slice(&hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"));
         bytes.reverse();
         let s = Scalar::from_bytes_mod_order_wide(&bytes);
-        let mut bytes: [u8; 57] = hex!("002939f823b7292052bcb7e4d070af1a9cc14ba3c47c44ae17cf72c985bb24b6c520e319fb37a63e29800f160787ad1d2e11883fa931e7de81");
+        let mut bytes = ScalarBytes::clone_from_slice(&hex!("002939f823b7292052bcb7e4d070af1a9cc14ba3c47c44ae17cf72c985bb24b6c520e319fb37a63e29800f160787ad1d2e11883fa931e7de81"));
         bytes.reverse();
         let reduced = Scalar::from_canonical_bytes(bytes).unwrap();
         assert_eq!(s, reduced);
@@ -608,8 +963,8 @@ mod test {
         // n-1
         let mut bytes: [u8; 57] = hex!("003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f2");
         bytes.reverse();
-        let x = Scalar::zero() - Scalar::one();
+        let x = Scalar::ZERO - Scalar::ONE;
         let candidate = x.to_bytes_rfc_8032();
-        assert_eq!(bytes, candidate);
+        assert_eq!(&bytes[..], &candidate[..]);
     }
 }

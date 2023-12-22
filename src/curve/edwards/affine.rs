@@ -8,17 +8,16 @@ pub struct AffinePoint {
 }
 
 impl AffinePoint {
-    pub fn identity() -> AffinePoint {
-        AffinePoint {
-            x: FieldElement::zero(),
-            y: FieldElement::one(),
-        }
-    }
+    pub const IDENTITY: AffinePoint = AffinePoint {
+            x: FieldElement::ZERO,
+            y: FieldElement::ONE,
+    };
+
     pub fn to_extended(&self) -> ExtendedPoint {
         ExtendedPoint {
             X: self.x,
             Y: self.y,
-            Z: FieldElement::one(),
+            Z: FieldElement::ONE,
             T: self.x * self.y,
         }
     }

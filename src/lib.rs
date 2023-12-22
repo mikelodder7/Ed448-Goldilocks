@@ -7,11 +7,15 @@
 #[macro_use]
 pub(crate) mod macros;
 
+use elliptic_curve::generic_array::{GenericArray, typenum::U56};
+
 // As usual, we will use this file to carefully define the API/ what we expose to the user
 pub mod constants;
 pub mod curve;
 pub mod decaf;
 mod field;
 pub mod ristretto;
+
+pub type FieldBytes = GenericArray<u8, U56>;
 
 pub use field::Scalar;

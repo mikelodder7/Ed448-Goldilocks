@@ -93,7 +93,7 @@ impl ConditionallySelectable for FieldElement28 {
 
 impl Default for FieldElement28 {
     fn default() -> FieldElement28 {
-        FieldElement28::zero()
+        FieldElement28::ZERO
     }
 }
 
@@ -102,18 +102,12 @@ impl Default for FieldElement28 {
 ///
 
 impl FieldElement28 {
-    pub const fn zero() -> FieldElement28 {
-        FieldElement28([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-    }
-    pub const fn one() -> FieldElement28 {
-        FieldElement28([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-    }
-    pub fn minus_one() -> FieldElement28 {
-        FieldElement28([
+    pub const ZERO: FieldElement28 = FieldElement28([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    pub const ONE: FieldElement28 = FieldElement28([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    pub const MINUS_ONE: FieldElement28 = FieldElement28([
             268435454, 268435455, 268435455, 268435455, 268435455, 268435455, 268435455, 268435455,
             268435454, 268435455, 268435455, 268435455, 268435455, 268435455, 268435455, 268435455,
-        ])
-    }
+        ]);
 }
 
 ///
@@ -150,7 +144,7 @@ impl FieldElement28 {
         };
 
         const MASK: u32 = (1 << 28) - 1;
-        let mut res = FieldElement28::zero();
+        let mut res = FieldElement28::ZERO;
         for i in 0..8 {
             // Load i'th 56 bytes
             let out = load7(&bytes[i * 7..]);
@@ -190,7 +184,7 @@ impl FieldElement28 {
 
     /// Negates a field element
     pub(crate) fn negate(&self) -> FieldElement28 {
-        FieldElement28::zero() - *self
+        FieldElement28::ZERO - *self
     }
 
     /// Bias adds 'b' multiples of `p` to self

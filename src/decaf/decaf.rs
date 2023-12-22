@@ -102,8 +102,8 @@ impl CompressedDecaf {
         }
 
         let ss = s.square();
-        let u1 = FieldElement::one() - ss;
-        let u2 = FieldElement::one() + ss;
+        let u1 = FieldElement::ONE - ss;
+        let u2 = FieldElement::ONE + ss;
         let u1_sqr = u1.square();
 
         let v = ss * (NEG_FOUR_TIMES_TWISTED_D) + u1_sqr; // XXX: constantify please
@@ -121,7 +121,7 @@ impl CompressedDecaf {
         X.conditional_negate(k.is_negative());
 
         let Y = Dx * u2;
-        let Z = FieldElement::one();
+        let Z = FieldElement::ONE;
         let T = X * Y;
 
         Some(DecafPoint(ExtendedPoint { X: X, Y, Z, T }))

@@ -55,10 +55,10 @@ impl ExtendedPoint {
     /// Identity point
     pub fn identity() -> ExtendedPoint {
         ExtendedPoint {
-            X: FieldElement::zero(),
-            Y: FieldElement::one(),
-            Z: FieldElement::one(),
-            T: FieldElement::zero(),
+            X: FieldElement::ZERO,
+            Y: FieldElement::ONE,
+            Z: FieldElement::ONE,
+            T: FieldElement::ZERO,
         }
     }
 
@@ -81,7 +81,7 @@ impl ExtendedPoint {
             Y: self.Y,
             Z: self.Z,
             T1: self.T,
-            T2: FieldElement::one(),
+            T2: FieldElement::ONE,
         }
     }
 
@@ -118,19 +118,19 @@ impl ExtendedPoint {
 
         // Compute y
         let y_numerator = y.square() + (a * x.square());
-        let y_denom = (FieldElement::one() + FieldElement::one()) - y.square() - (a * x.square());
+        let y_denom = (FieldElement::ONE + FieldElement::ONE) - y.square() - (a * x.square());
         let new_y = y_numerator * y_denom.invert();
 
         EdwardsExtendedPoint {
             X: new_x,
             Y: new_y,
-            Z: FieldElement::one(),
+            Z: FieldElement::ONE,
             T: new_x * new_y,
         }
     }
     /// Uses a 2-isogeny to map the point to the Ed448-Goldilocks
     pub fn to_untwisted(&self) -> EdwardsExtendedPoint {
-        self.edwards_isogeny(FieldElement::minus_one())
+        self.edwards_isogeny(FieldElement::MINUS_ONE)
     }
 
     /// Checks if the point is on the curve

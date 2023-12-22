@@ -41,11 +41,11 @@ impl Eq for ExtensiblePoint {}
 impl ExtensiblePoint {
     pub fn identity() -> ExtensiblePoint {
         ExtensiblePoint {
-            X: FieldElement::zero(),
-            Y: FieldElement::one(),
-            Z: FieldElement::one(),
-            T1: FieldElement::zero(),
-            T2: FieldElement::one(),
+            X: FieldElement::ZERO,
+            Y: FieldElement::ONE,
+            Z: FieldElement::ONE,
+            T1: FieldElement::ZERO,
+            T2: FieldElement::ONE,
         }
     }
     /// Doubles a point

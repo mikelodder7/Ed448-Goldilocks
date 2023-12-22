@@ -8,7 +8,16 @@ use crate::curve::montgomery::montgomery::MontgomeryPoint; // XXX: need to fix t
 use crate::curve::scalar_mul::variable_base;
 use crate::curve::twedwards::extended::ExtendedPoint as TwistedExtendedPoint;
 use crate::field::{FieldElement, Scalar};
-use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq};
+use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption};
+use elliptic_curve::{
+    group::{Group, GroupEncoding},
+    generic_array::{GenericArray, typenum::U57},
+};
+use rand_core::RngCore;
+
+pub const DEFAULT_HASH_TO_CURVE_SUITE: &[u8] = b"edwards448_XOF:SHAKE256_ELL2_RO_";
+pub const DEFAULT_ENCODE_TO_CURVE_SUITE: &[u8] = b"edwards448_XOF:SHAKE256_ELL2_NU_";
+
 #[allow(non_snake_case)]
 
 /// Represent points on the (untwisted) edwards curve using Extended Homogenous Projective Co-ordinates
@@ -38,7 +47,7 @@ impl ConditionallySelectable for ExtendedPoint {
 pub struct CompressedEdwardsY(pub [u8; 57]);
 
 impl CompressedEdwardsY {
-    pub fn decompress(&self) -> Option<ExtendedPoint> {
+    pub fn decompress(&self) -> CtOption<ExtendedPoint> {
         // Safe to unwrap here as the underlying data structure is a slice
         let (sign, b) = self.0.split_last().unwrap();
 
@@ -49,20 +58,17 @@ impl CompressedEdwardsY {
         let y = FieldElement::from_bytes(&y_bytes);
         let yy = y.square();
         let dyy = EDWARDS_D * yy;
-        let numerator = FieldElement::one() - yy;
-        let denominator = FieldElement::one() - dyy;
+        let numerator = FieldElement::ONE - yy;
+        let denominator = FieldElement::ONE - dyy;
 
         let (mut x, is_res) = FieldElement::sqrt_ratio(&numerator, &denominator);
-        if is_res.unwrap_u8() != 1 {
-            return None;
-        }
 
         // Compute correct sign of x
         let compressed_sign_bit = Choice::from(sign >> 7);
         let is_negative = x.is_negative();
         x.conditional_negate(compressed_sign_bit ^ is_negative);
 
-        return Some(AffinePoint { x, y }.to_extended());
+        CtOption::new(AffinePoint{ x, y }.to_extended(), is_res)
     }
 }
 
@@ -87,24 +93,65 @@ impl Eq for ExtendedPoint {}
 
 impl Default for ExtendedPoint {
     fn default() -> ExtendedPoint {
-        ExtendedPoint::identity()
+        ExtendedPoint::IDENTITY
+    }
+}
+
+impl Group for ExtendedPoint {
+    type Scalar = Scalar;
+
+    fn random(rng: impl RngCore) -> Self {
+        todo!()
+    }
+
+    fn identity() -> Self {
+        Self::IDENTITY
+    }
+
+    fn generator() -> Self {
+        Self::GENERATOR
+    }
+
+    fn is_identity(&self) -> Choice {
+        self.ct_eq(&Self::IDENTITY)
+    }
+
+    fn double(&self) -> Self {
+        self.double()
+    }
+}
+
+impl GroupEncoding for ExtendedPoint {
+    type Repr = GenericArray<u8, U57>;
+
+    fn from_bytes(bytes: &Self::Repr) -> CtOption<Self> {
+        let mut value = [0u8; 57];
+        value.copy_from_slice(bytes);
+        CompressedEdwardsY(value).decompress()
+    }
+
+    fn from_bytes_unchecked(bytes: &Self::Repr) -> CtOption<Self> {
+        let mut value = [0u8; 57];
+        value.copy_from_slice(bytes);
+        CompressedEdwardsY(value).decompress()
+    }
+
+    fn to_bytes(&self) -> Self::Repr {
+        Self::Repr::clone_from_slice(&self.compress().0)
     }
 }
 
 impl ExtendedPoint {
     /// Identity point
-    pub fn identity() -> ExtendedPoint {
-        ExtendedPoint {
-            X: FieldElement::zero(),
-            Y: FieldElement::one(),
-            Z: FieldElement::one(),
-            T: FieldElement::zero(),
-        }
-    }
+    pub const IDENTITY: ExtendedPoint = ExtendedPoint {
+            X: FieldElement::ZERO,
+            Y: FieldElement::ONE,
+            Z: FieldElement::ONE,
+            T: FieldElement::ZERO,
+    };
+
     /// Generator for the prime subgroup
-    pub const fn generator() -> ExtendedPoint {
-        crate::constants::GOLDILOCKS_BASE_POINT
-    }
+    pub const GENERATOR: ExtendedPoint = crate::constants::GOLDILOCKS_BASE_POINT;
 
     pub fn to_montgomery(&self) -> MontgomeryPoint {
         // u = y^2 * [(1-dy^2)/(1-y^2)]
@@ -114,10 +161,11 @@ impl ExtendedPoint {
         let yy = affine.y.square();
         let dyy = EDWARDS_D * yy;
 
-        let u = yy * (FieldElement::one() - dyy) * (FieldElement::one() - yy).invert();
+        let u = yy * (FieldElement::ONE - dyy) * (FieldElement::ONE - yy).invert();
 
         MontgomeryPoint(u.to_bytes())
     }
+
     /// Generic scalar multiplication to compute s*P
     pub fn scalar_mul(&self, scalar: &Scalar) -> ExtendedPoint {
         // Compute floor(s/4)
@@ -136,7 +184,7 @@ impl ExtendedPoint {
         let s_mod_four = scalar[0] & 3;
 
         // Compute all possible values of (scalar mod 4) * P
-        let zero_p = ExtendedPoint::identity();
+        let zero_p = ExtendedPoint::IDENTITY;
         let one_p = self.clone();
         let two_p = one_p.double();
         let three_p = two_p.add(self);
@@ -146,7 +194,7 @@ impl ExtendedPoint {
         // This should be cheaper than calling double_and_add or a scalar mul operation
         // as the number of possibilities are so small.
         // XXX: This claim has not been tested (although it sounds intuitive to me)
-        let mut result = ExtendedPoint::identity();
+        let mut result = ExtendedPoint::IDENTITY;
         result.conditional_assign(&zero_p, Choice::from((s_mod_four == 0) as u8));
         result.conditional_assign(&one_p, Choice::from((s_mod_four == 1) as u8));
         result.conditional_assign(&two_p, Choice::from((s_mod_four == 2) as u8));
@@ -255,18 +303,18 @@ impl ExtendedPoint {
 
         // Compute y
         let y_numerator = y.square() + (a * x.square());
-        let y_denom = (FieldElement::one() + FieldElement::one()) - y.square() - (a * x.square());
+        let y_denom = (FieldElement::ONE + FieldElement::ONE) - y.square() - (a * x.square());
         let new_y = y_numerator * y_denom.invert();
 
         TwistedExtendedPoint {
             X: new_x,
             Y: new_y,
-            Z: FieldElement::one(),
+            Z: FieldElement::ONE,
             T: new_x * new_y,
         }
     }
     pub fn to_twisted(&self) -> TwistedExtendedPoint {
-        self.edwards_isogeny(FieldElement::one())
+        self.edwards_isogeny(FieldElement::ONE)
     }
 
     pub fn negate(&self) -> ExtendedPoint {
@@ -297,7 +345,7 @@ impl ExtendedPoint {
     /// * `false` if `self` has a nonzero torsion component and is not
     /// in the prime-order subgroup.
     pub fn is_torsion_free(&self) -> bool {
-        (self * BASEPOINT_ORDER) == Self::identity()
+        (self * BASEPOINT_ORDER) == Self::IDENTITY
     }
 }
 
@@ -355,7 +403,7 @@ where
     where
         I: Iterator<Item = T>,
     {
-        iter.fold(ExtendedPoint::identity(), |acc, item| acc + item.borrow())
+        iter.fold(Self::IDENTITY, |acc, item| acc + item.borrow())
     }
 }
 
@@ -474,7 +522,7 @@ mod tests {
         let gen = AffinePoint { x, y }.to_extended();
 
         let decompressed_point = gen.compress().decompress();
-        assert!(decompressed_point.is_some());
+        assert!(<Choice as Into<bool>>::into(decompressed_point.is_some()));
 
         assert!(gen == decompressed_point.unwrap());
     }
@@ -506,8 +554,8 @@ mod tests {
     }
     #[test]
     fn test_is_torsion_free() {
-        assert!(ExtendedPoint::generator().is_torsion_free());
-        assert!(ExtendedPoint::identity().is_torsion_free());
+        assert!(ExtendedPoint::GENERATOR.is_torsion_free());
+        assert!(ExtendedPoint::IDENTITY.is_torsion_free());
 
         let bytes = hex!("13b6714c7a5f53101bbec88f2f17cd30f42e37fae363a5474efb4197ed6005df5861ae178a0c2c16ad378b7befed0d0904b7ced35e9f674180");
         let compressed = CompressedEdwardsY(bytes);
