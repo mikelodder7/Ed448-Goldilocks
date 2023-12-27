@@ -2,20 +2,27 @@ use std::borrow::Borrow;
 use std::iter::Sum;
 use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
-use crate::constants::{BASEPOINT_ORDER, EDWARDS_D};
+use crate::constants::BASEPOINT_ORDER;
 use crate::curve::edwards::affine::AffinePoint;
 use crate::curve::montgomery::montgomery::MontgomeryPoint; // XXX: need to fix this path
 use crate::curve::scalar_mul::variable_base;
 use crate::curve::twedwards::extended::ExtendedPoint as TwistedExtendedPoint;
+use crate::curve::{iso448, map_to_curve_elligator2};
 use crate::field::{FieldElement, Scalar};
-use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption};
+use elliptic_curve::hash2curve::{ExpandMsg, ExpandMsgXof, Expander, FromOkm};
 use elliptic_curve::{
+    generic_array::{
+        typenum::{U57, U84},
+        GenericArray,
+    },
     group::{Group, GroupEncoding},
-    generic_array::{GenericArray, typenum::U57},
 };
 use rand_core::RngCore;
+use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption};
 
+/// The default hash to curve domain separation tag
 pub const DEFAULT_HASH_TO_CURVE_SUITE: &[u8] = b"edwards448_XOF:SHAKE256_ELL2_RO_";
+/// The default encode to curve domain separation tag
 pub const DEFAULT_ENCODE_TO_CURVE_SUITE: &[u8] = b"edwards448_XOF:SHAKE256_ELL2_NU_";
 
 #[allow(non_snake_case)]
@@ -57,7 +64,7 @@ impl CompressedEdwardsY {
         // Recover x using y
         let y = FieldElement::from_bytes(&y_bytes);
         let yy = y.square();
-        let dyy = EDWARDS_D * yy;
+        let dyy = FieldElement::EDWARDS_D * yy;
         let numerator = FieldElement::ONE - yy;
         let denominator = FieldElement::ONE - dyy;
 
@@ -68,7 +75,7 @@ impl CompressedEdwardsY {
         let is_negative = x.is_negative();
         x.conditional_negate(compressed_sign_bit ^ is_negative);
 
-        CtOption::new(AffinePoint{ x, y }.to_extended(), is_res)
+        CtOption::new(AffinePoint { x, y }.to_extended(), is_res)
     }
 }
 
@@ -100,8 +107,10 @@ impl Default for ExtendedPoint {
 impl Group for ExtendedPoint {
     type Scalar = Scalar;
 
-    fn random(rng: impl RngCore) -> Self {
-        todo!()
+    fn random(mut rng: impl RngCore) -> Self {
+        let mut bytes = [0u8; 32];
+        rng.fill_bytes(&mut bytes);
+        Self::hash_with_defaults(&bytes)
     }
 
     fn identity() -> Self {
@@ -143,15 +152,15 @@ impl GroupEncoding for ExtendedPoint {
 
 impl ExtendedPoint {
     /// Identity point
-    pub const IDENTITY: ExtendedPoint = ExtendedPoint {
-            X: FieldElement::ZERO,
-            Y: FieldElement::ONE,
-            Z: FieldElement::ONE,
-            T: FieldElement::ZERO,
+    pub const IDENTITY: Self = Self {
+        X: FieldElement::ZERO,
+        Y: FieldElement::ONE,
+        Z: FieldElement::ONE,
+        T: FieldElement::ZERO,
     };
 
     /// Generator for the prime subgroup
-    pub const GENERATOR: ExtendedPoint = crate::constants::GOLDILOCKS_BASE_POINT;
+    pub const GENERATOR: Self = crate::GOLDILOCKS_BASE_POINT;
 
     pub fn to_montgomery(&self) -> MontgomeryPoint {
         // u = y^2 * [(1-dy^2)/(1-y^2)]
@@ -159,7 +168,7 @@ impl ExtendedPoint {
         let affine = self.to_affine();
 
         let yy = affine.y.square();
-        let dyy = EDWARDS_D * yy;
+        let dyy = FieldElement::EDWARDS_D * yy;
 
         let u = yy * (FieldElement::ONE - dyy) * (FieldElement::ONE - yy).invert();
 
@@ -167,7 +176,7 @@ impl ExtendedPoint {
     }
 
     /// Generic scalar multiplication to compute s*P
-    pub fn scalar_mul(&self, scalar: &Scalar) -> ExtendedPoint {
+    pub fn scalar_mul(&self, scalar: &Scalar) -> Self {
         // Compute floor(s/4)
         let mut scalar_div_four = scalar.clone();
         scalar_div_four.div_by_four();
@@ -179,7 +188,7 @@ impl ExtendedPoint {
     }
 
     /// Returns (scalar mod 4) * P in constant time
-    pub fn scalar_mod_four(&self, scalar: &Scalar) -> ExtendedPoint {
+    pub fn scalar_mod_four(&self, scalar: &Scalar) -> Self {
         // Compute compute (scalar mod 4)
         let s_mod_four = scalar[0] & 3;
 
@@ -225,9 +234,9 @@ impl ExtendedPoint {
 
     //https://iacr.org/archive/asiacrypt2008/53500329/53500329.pdf (3.1)
     // These formulas are unified, so for now we can use it for doubling. Will refactor later for speed
-    pub fn add(&self, other: &ExtendedPoint) -> ExtendedPoint {
+    pub fn add(&self, other: &ExtendedPoint) -> Self {
         let aXX = self.X * other.X; // aX1X2
-        let dTT = EDWARDS_D * self.T * other.T; // dT1T2
+        let dTT = FieldElement::EDWARDS_D * self.T * other.T; // dT1T2
         let ZZ = self.Z * other.Z; // Z1Z2
         let YY = self.Y * other.Y;
 
@@ -255,7 +264,7 @@ impl ExtendedPoint {
 
     // XXX: See comment on addition, the formula is unified, so this will do for now
     //https://iacr.org/archive/asiacrypt2008/53500329/53500329.pdf (3.1)
-    pub fn double(&self) -> ExtendedPoint {
+    pub fn double(&self) -> Self {
         self.add(&self)
     }
 
@@ -270,7 +279,7 @@ impl ExtendedPoint {
         let ZZ = self.Z.square();
         let TT = self.T.square();
         let lhs = YY + XX;
-        let rhs = ZZ + TT * EDWARDS_D;
+        let rhs = ZZ + TT * FieldElement::EDWARDS_D;
 
         (XY == ZT) && (lhs == rhs)
     }
@@ -278,14 +287,12 @@ impl ExtendedPoint {
     pub fn to_affine(&self) -> AffinePoint {
         let INV_Z = self.Z.invert();
 
-        let mut x = self.X * INV_Z;
-        x.strong_reduce();
-
-        let mut y = self.Y * INV_Z;
-        y.strong_reduce();
+        let x = self.X * INV_Z;
+        let y = self.Y * INV_Z;
 
         AffinePoint { x, y }
     }
+
     /// Edwards_Isogeny is derived from the doubling formula
     /// XXX: There is a duplicate method in the twisted edwards module to compute the dual isogeny
     /// XXX: Not much point trying to make it generic I think. So what we can do is optimise each respective isogeny method for a=1 or a = -1 (currently, I just made it really slow and simple)
@@ -313,23 +320,24 @@ impl ExtendedPoint {
             T: new_x * new_y,
         }
     }
+
     pub fn to_twisted(&self) -> TwistedExtendedPoint {
         self.edwards_isogeny(FieldElement::ONE)
     }
 
-    pub fn negate(&self) -> ExtendedPoint {
+    pub fn negate(&self) -> Self {
         ExtendedPoint {
-            X: self.X.negate(),
+            X: -self.X,
             Y: self.Y,
             Z: self.Z,
-            T: self.T.negate(),
+            T: -self.T,
         }
     }
 
-    pub fn torque(&self) -> ExtendedPoint {
+    pub fn torque(&self) -> Self {
         ExtendedPoint {
-            X: self.X.negate(),
-            Y: self.Y.negate(),
+            X: -self.X,
+            Y: -self.Y,
             Z: self.Z,
             T: self.T,
         }
@@ -346,6 +354,56 @@ impl ExtendedPoint {
     /// in the prime-order subgroup.
     pub fn is_torsion_free(&self) -> bool {
         (self * BASEPOINT_ORDER) == Self::IDENTITY
+    }
+
+    /// Hash using the default domain separation tag and hash function
+    pub fn hash_with_defaults(msg: &[u8]) -> Self {
+        Self::hash::<ExpandMsgXof<sha3::Shake256>>(msg, DEFAULT_HASH_TO_CURVE_SUITE)
+    }
+
+    /// Implements hash to curve according
+    /// see <https://datatracker.ietf.org/doc/rfc9380/>
+    pub fn hash<X>(msg: &[u8], dst: &[u8]) -> Self
+    where
+        X: for<'a> ExpandMsg<'a>,
+    {
+        let mut random_bytes = GenericArray::<u8, U84>::default();
+        let dst = [dst];
+        let mut expander = X::expand_message(&[msg], &dst, random_bytes.len() * 2).unwrap();
+        expander.fill_bytes(&mut random_bytes);
+        let u0 = FieldElement::from_okm(&random_bytes);
+        expander.fill_bytes(&mut random_bytes);
+        let u1 = FieldElement::from_okm(&random_bytes);
+        let mut q0 = map_to_curve_elligator2(&u0);
+        let mut q1 = map_to_curve_elligator2(&u1);
+        q0 = iso448(&q0);
+        q1 = iso448(&q1);
+        let cofactor = Scalar::from(4u8);
+
+        (q0.to_extended() + q1.to_extended()).scalar_mul(&cofactor)
+    }
+
+    /// Encode using the default domain separation tag and hash function
+    pub fn encode_with_defaults(msg: &[u8]) -> Self {
+        Self::encode::<ExpandMsgXof<sha3::Shake256>>(msg, DEFAULT_ENCODE_TO_CURVE_SUITE)
+    }
+
+    /// Implements encode to curve according
+    /// see <https://datatracker.ietf.org/doc/rfc9380/>
+    pub fn encode<X>(msg: &[u8], dst: &[u8]) -> Self
+    where
+        X: for<'a> ExpandMsg<'a>,
+    {
+        let mut random_bytes = GenericArray::<u8, U84>::default();
+        let dst = [dst];
+        let mut expander = X::expand_message(&[msg], &dst, random_bytes.len()).unwrap();
+        expander.fill_bytes(&mut random_bytes);
+        let u0 = FieldElement::from_okm(&random_bytes);
+        let mut q0 = map_to_curve_elligator2(&u0);
+        q0 = iso448(&q0);
+        let cofactor = Scalar::from(4u8);
+
+        q0.to_extended().scalar_mul(&cofactor)
     }
 }
 
@@ -462,8 +520,8 @@ impl<'a, 'b> Mul<&'b ExtendedPoint> for &'a Scalar {
 
 #[cfg(test)]
 mod tests {
-    use hex_literal::hex;
     use super::*;
+    use hex_literal::hex;
 
     fn hex_to_field(hex: &'static str) -> FieldElement {
         assert_eq!(hex.len(), 56 * 2);
@@ -484,7 +542,7 @@ mod tests {
     // XXX: Move this to constants folder to test all global constants
     #[test]
     fn derive_base_points() {
-        use crate::constants::{GOLDILOCKS_BASE_POINT, TWISTED_EDWARDS_BASE_POINT};
+        use crate::{GOLDILOCKS_BASE_POINT, TWISTED_EDWARDS_BASE_POINT};
 
         // This was the original basepoint which had order 2q;
         let old_x = hex_to_field("4F1970C66BED0DED221D15A622BF36DA9E146570470F1767EA6DE324A3D3A46412AE1AF72AB66511433B80E18B00938E2626A82BC70CC05E");
@@ -561,5 +619,57 @@ mod tests {
         let compressed = CompressedEdwardsY(bytes);
         let decompressed = compressed.decompress().unwrap();
         assert!(!decompressed.is_torsion_free());
+    }
+
+    #[test]
+    fn hash() {
+        const DST: &[u8] = b"QUUX-V01-CS02-with-edwards448_XOF:SHAKE256_ELL2_RO_";
+        const MSGS: &[(&[u8], [u8; 56], [u8; 56])] = &[
+            (b"", hex!("73036d4a88949c032f01507005c133884e2f0d81f9a950826245dda9e844fc78186c39daaa7147ead3e462cff60e9c6340b58134480b4d17"), hex!("94c1d61b43728e5d784ef4fcb1f38e1075f3aef5e99866911de5a234f1aafdc26b554344742e6ba0420b71b298671bbeb2b7736618634610")),
+            (b"abc", hex!("4e0158acacffa545adb818a6ed8e0b870e6abc24dfc1dc45cf9a052e98469275d9ff0c168d6a5ac7ec05b742412ee090581f12aa398f9f8c"), hex!("894d3fa437b2d2e28cdc3bfaade035430f350ec5239b6b406b5501da6f6d6210ff26719cad83b63e97ab26a12df6dec851d6bf38e294af9a")),
+            (b"abcdef0123456789", hex!("2c25b4503fadc94b27391933b557abdecc601c13ed51c5de68389484f93dbd6c22e5f962d9babf7a39f39f994312f8ca23344847e1fbf176"), hex!("d5e6f5350f430e53a110f5ac7fcc82a96cb865aeca982029522d32601e41c042a9dfbdfbefa2b0bdcdc3bc58cca8a7cd546803083d3a8548")),
+            (b"q128_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq", hex!("a1861a9464ae31249a0e60bf38791f3663049a3f5378998499a83292e159a2fecff838eb9bc6939e5c6ae76eb074ad4aae39b55b72ca0b9a"), hex!("580a2798c5b904f8adfec5bd29fb49b4633cd9f8c2935eb4a0f12e5dfa0285680880296bb729c6405337525fb5ed3dff930c137314f60401")),
+            (b"a512_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", hex!("987c5ac19dd4b47835466a50b2d9feba7c8491b8885a04edf577e15a9f2c98b203ec2cd3e5390b3d20bba0fa6fc3eecefb5029a317234401"), hex!("5e273fcfff6b007bb6771e90509275a71ff1480c459ded26fc7b10664db0a68aaa98bc7ecb07e49cf05b80ae5ac653fbdd14276bbd35ccbc")),
+        ];
+
+        for (msg, x, y) in MSGS {
+            let p = ExtendedPoint::hash::<ExpandMsgXof<sha3::Shake256>>(msg, DST);
+            assert!(p.is_on_curve());
+            let p = p.to_affine();
+            let mut xx = [0u8; 56];
+            xx.copy_from_slice(&x[..]);
+            xx.reverse();
+            let mut yy = [0u8; 56];
+            yy.copy_from_slice(&y[..]);
+            yy.reverse();
+            assert_eq!(p.x.to_bytes(), xx);
+            assert_eq!(p.y.to_bytes(), yy);
+        }
+    }
+
+    #[test]
+    fn encode() {
+        const DST: &[u8] = b"QUUX-V01-CS02-with-edwards448_XOF:SHAKE256_ELL2_NU_";
+        const MSGS: &[(&[u8], [u8; 56], [u8; 56])] = &[
+            (b"", hex!("eb5a1fc376fd73230af2de0f3374087cc7f279f0460114cf0a6c12d6d044c16de34ec2350c34b26bf110377655ab77936869d085406af71e"), hex!("df5dcea6d42e8f494b279a500d09e895d26ac703d75ca6d118e8ca58bf6f608a2a383f292fce1563ff995dce75aede1fdc8e7c0c737ae9ad")),
+            (b"abc", hex!("4623a64bceaba3202df76cd8b6e3daf70164f3fcbda6d6e340f7fab5cdf89140d955f722524f5fe4d968fef6ba2853ff4ea086c2f67d8110"), hex!("abaac321a169761a8802ab5b5d10061fec1a83c670ac6bc95954700317ee5f82870120e0e2c5a21b12a0c7ad17ebd343363604c4bcecafd1")),
+            (b"abcdef0123456789", hex!("e9eb562e76db093baa43a31b7edd04ec4aadcef3389a7b9c58a19cf87f8ae3d154e134b6b3ed45847a741e33df51903da681629a4b8bcc2e"), hex!("0cf6606927ad7eb15dbc193993bc7e4dda744b311a8ec4274c8f738f74f605934582474c79260f60280fe35bd37d4347e59184cbfa12cbc4")),
+            (b"q128_qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq", hex!("122a3234d34b26c69749f23356452bf9501efa2d94859d5ef741fef024156d9d191a03a2ad24c38186f93e02d05572575968b083d8a39738"), hex!("ddf55e74eb4414c2c1fa4aa6bc37c4ab470a3fed6bb5af1e43570309b162fb61879bb15f9ea49c712efd42d0a71666430f9f0d4a20505050")),
+            (b"a512_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", hex!("221704949b1ce1ab8dd174dc9b8c56fcffa27179569ce9219c0c2fe183d3d23343a4c42a0e2e9d6b9d0feb1df3883ec489b6671d1fa64089"), hex!("ebdecfdc87142d1a919034bf22ecfad934c9a85effff14b594ae2c00943ca62a39d6ee3be9df0bb504ce8a9e1669bc6959c42ad6a1d3b686")),
+        ];
+
+        for (msg, x, y) in MSGS {
+            let p = ExtendedPoint::encode::<ExpandMsgXof<sha3::Shake256>>(msg, DST);
+            assert!(p.is_on_curve());
+            let p = p.to_affine();
+            let mut xx = [0u8; 56];
+            xx.copy_from_slice(&x[..]);
+            xx.reverse();
+            let mut yy = [0u8; 56];
+            yy.copy_from_slice(&y[..]);
+            yy.reverse();
+            assert_eq!(p.x.to_bytes(), xx);
+            assert_eq!(p.y.to_bytes(), yy);
+        }
     }
 }

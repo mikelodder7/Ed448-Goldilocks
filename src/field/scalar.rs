@@ -1,13 +1,16 @@
 use core::iter::{Product, Sum};
-use core::ops::{Add, AddAssign, Index, IndexMut, Mul, MulAssign, Sub, SubAssign, Neg};
+use core::ops::{Add, AddAssign, Index, IndexMut, Mul, MulAssign, Neg, Sub, SubAssign};
 
-use rand_core::{CryptoRng, RngCore};
-use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
 use elliptic_curve::{
-    ff::{Field, helpers},
-    generic_array::{GenericArray, typenum::{U57, U114}},
+    ff::{helpers, Field},
+    generic_array::{
+        typenum::{U114, U57},
+        GenericArray,
+    },
     PrimeField,
 };
+use rand_core::{CryptoRng, RngCore};
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
 
 use crate::constants;
 
@@ -50,7 +53,7 @@ impl ConditionallySelectable for Scalar {
 
 impl PartialEq for Scalar {
     fn eq(&self, other: &Scalar) -> bool {
-        self.ct_eq(&other).into()
+        self.ct_eq(other).into()
     }
 }
 
@@ -76,13 +79,43 @@ impl From<u32> for Scalar {
 
 impl From<u64> for Scalar {
     fn from(a: u64) -> Self {
-        Scalar([a as u32, (a >> 32) as u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        Scalar([
+            a as u32,
+            (a >> 32) as u32,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ])
     }
 }
 
 impl From<u128> for Scalar {
     fn from(a: u128) -> Self {
-        Scalar([a as u32, (a >> 32) as u32, (a >> 64) as u32, (a >> 96) as u32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        Scalar([
+            a as u32,
+            (a >> 32) as u32,
+            (a >> 64) as u32,
+            (a >> 96) as u32,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ])
     }
 }
 
@@ -120,7 +153,7 @@ impl Add<Scalar> for &Scalar {
     type Output = Scalar;
 
     fn add(self, rhs: Scalar) -> Self::Output {
-       add(self, &rhs)
+        add(self, &rhs)
     }
 }
 
@@ -156,7 +189,7 @@ impl Mul<&Scalar> for Scalar {
     type Output = Scalar;
 
     fn mul(self, rhs: &Scalar) -> Self::Output {
-        &self * rhs
+        self * *rhs
     }
 }
 
@@ -164,7 +197,7 @@ impl Mul<Scalar> for &Scalar {
     type Output = Scalar;
 
     fn mul(self, rhs: Scalar) -> Self::Output {
-        self * &rhs
+        *self * rhs
     }
 }
 
@@ -352,14 +385,15 @@ impl PrimeField for Scalar {
         0x284d98cd, 0x37bc82e8, 0x2e8ae84c, 0xe42ddad7, 0xaea94041, 0x1a21435e, 0x1b644703,
         0x2c07bf6c, 0x330b2d96, 0x1f0163dc, 0x8b6172cd, 0x8925b1ee, 0x6717df40, 0x1f87f25a,
     ]);
-    const DELTA: Self = Self([
-        0x961, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ]);
+    const DELTA: Self = Self([0x961, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 }
 
 #[cfg(feature = "serde")]
 impl serde::Serialize for Scalar {
-    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
         use serde::ser::SerializeTuple;
 
         let bytes = self.to_bytes_rfc_8032();
@@ -373,8 +407,11 @@ impl serde::Serialize for Scalar {
 
 #[cfg(feature = "serde")]
 impl<'de> serde::Deserialize<'de> for Scalar {
-    fn deserialize<D>(d: D) -> Result<Self, D::Error> where D: serde::Deserializer<'de> {
-        use serde::de::{Visitor, SeqAccess};
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::{SeqAccess, Visitor};
 
         struct ScalarVisitor;
 
@@ -385,10 +422,14 @@ impl<'de> serde::Deserialize<'de> for Scalar {
                 write!(f, "a sequence of 57 little endian bytes")
             }
 
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error> where A: SeqAccess<'de> {
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
                 let mut scalar = [0u8; 57];
                 for (i, v) in scalar.iter_mut().enumerate() {
-                    *v = seq.next_element()?
+                    *v = seq
+                        .next_element()?
                         .ok_or_else(|| serde::de::Error::invalid_length(i, &"expected 57 bytes"))?;
                 }
                 Scalar::from_canonical_bytes(scalar)
@@ -461,7 +502,7 @@ impl Scalar {
         // Convert from radix 256 (bytes) to radix 16 (nibbles)
         #[inline(always)]
         fn bot_half(x: u8) -> u8 {
-            (x >> 0) & 15
+            x & 15
         }
         #[inline(always)]
         fn top_half(x: u8) -> u8 {
@@ -530,7 +571,7 @@ impl Scalar {
     }
 
     pub fn square(&self) -> Scalar {
-        montgomery_multiply(&self, &self)
+        montgomery_multiply(self, self)
     }
 
     pub fn invert(&self) -> Self {
@@ -571,7 +612,7 @@ impl Scalar {
                 w = 0;
             }
 
-            if i >= 0 && i < 32 {
+            if (0..32).contains(&i) {
                 w -= 2
             }
 
@@ -644,7 +685,7 @@ impl Scalar {
     /// Byte 56 will always be zero.
     pub fn to_bytes_rfc_8032(&self) -> ScalarBytes {
         let mut bytes = ScalarBytes::default();
-        bytes[1..].copy_from_slice(&self.to_bytes());
+        bytes[..56].copy_from_slice(&self.to_bytes());
         bytes
     }
 
@@ -789,8 +830,8 @@ fn is_zero(b: u8) -> Choice {
 
 #[cfg(test)]
 mod test {
-    use hex_literal::hex;
     use super::*;
+    use hex_literal::hex;
 
     #[test]
     fn test_basic_add() {

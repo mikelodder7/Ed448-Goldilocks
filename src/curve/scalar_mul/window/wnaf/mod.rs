@@ -38,10 +38,10 @@ impl LookupTable {
 
 #[test]
 fn test_lookup() {
-    let p = ExtendedPoint::generator();
+    let p = ExtendedPoint::GENERATOR;
     let points = LookupTable::from(&p);
 
-    let mut expected_point = ExtendedPoint::identity();
+    let mut expected_point = ExtendedPoint::IDENTITY;
     for i in 0..8 {
         let selected_point = points.select(i);
         assert_eq!(selected_point.to_extended(), expected_point);

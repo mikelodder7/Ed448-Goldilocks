@@ -1,6 +1,8 @@
 use super::karatsuba;
-use std::ops::{Add, Index, IndexMut, Mul, Sub};
-use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable};
+use std::ops::{Add, Index, IndexMut, Mul, Sub, Neg, AddAssign, SubAssign, MulAssign};
+use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq};
+use crate::field::fiat_u64::FieldElement56;
+
 /// FieldElement28 represents an element in the field
 /// q = 2^448 - 2^224 -1
 ///
@@ -38,13 +40,87 @@ impl Mul<&FieldElement28> for FieldElement28 {
         karatsuba::mul(&self, rhs)
     }
 }
+impl Mul<FieldElement28> for &FieldElement28 {
+    type Output = FieldElement28;
+    fn mul(self, rhs: FieldElement28) -> Self::Output {
+        karatsuba::mul(self, &rhs)
+    }
+}
+impl Mul<&FieldElement28> for &FieldElement28 {
+    type Output = FieldElement28;
+    fn mul(self, rhs: &FieldElement28) -> Self::Output {
+        karatsuba::mul(self, rhs)
+    }
+}
+impl MulAssign<FieldElement28> for FieldElement28 {
+    fn mul_assign(&mut self, rhs: FieldElement28) {
+        *self = karatsuba::mul(self, &rhs);
+    }
+}
+impl MulAssign<&FieldElement28> for FieldElement28 {
+    fn mul_assign(&mut self, rhs: &FieldElement28) {
+        *self = karatsuba::mul(self, rhs);
+    }
+}
 
+impl Add<&FieldElement28> for &FieldElement28 {
+    type Output = FieldElement28;
+
+    fn add(self, rhs: &FieldElement28) -> Self::Output {
+        *self + *rhs
+    }
+}
+impl Add<FieldElement28> for &FieldElement28 {
+    type Output = FieldElement28;
+
+    fn add(self, rhs: FieldElement28) -> Self::Output {
+        *self + rhs
+    }
+}
+impl Add<&FieldElement28> for FieldElement28 {
+    type Output = FieldElement28;
+
+    fn add(self, rhs: &FieldElement28) -> Self::Output {
+        self + *rhs
+    }
+}
 impl Add<FieldElement28> for FieldElement28 {
     type Output = FieldElement28;
     fn add(self, rhs: FieldElement28) -> Self::Output {
         let mut inter_res = self.add_no_reduce(&rhs);
         inter_res.weak_reduce();
         inter_res
+    }
+}
+impl AddAssign<FieldElement28> for FieldElement28 {
+    fn add_assign(&mut self, rhs: FieldElement28) {
+        *self = &*self + rhs
+    }
+}
+impl AddAssign<&FieldElement28> for FieldElement28 {
+    fn add_assign(&mut self, rhs: &FieldElement28) {
+        *self = &*self + rhs
+    }
+}
+impl Sub<&FieldElement28> for &FieldElement28 {
+    type Output = FieldElement28;
+
+    fn sub(self, rhs: &FieldElement28) -> Self::Output {
+        *self - *rhs
+    }
+}
+impl Sub<FieldElement28> for &FieldElement28 {
+    type Output = FieldElement28;
+
+    fn sub(self, rhs: FieldElement28) -> Self::Output {
+        *self - rhs
+    }
+}
+impl Sub<&FieldElement28> for FieldElement28 {
+    type Output = FieldElement28;
+
+    fn sub(self, rhs: &FieldElement28) -> Self::Output {
+        self - *rhs
     }
 }
 impl Sub<FieldElement28> for FieldElement28 {
@@ -54,6 +130,30 @@ impl Sub<FieldElement28> for FieldElement28 {
         let mut inter_res = self.sub_no_reduce(&rhs);
         inter_res.weak_reduce();
         inter_res
+    }
+}
+impl SubAssign<FieldElement28> for FieldElement28 {
+    fn sub_assign(&mut self, rhs: FieldElement28) {
+        *self = &*self - rhs
+    }
+}
+impl SubAssign<&FieldElement28> for FieldElement28 {
+    fn sub_assign(&mut self, rhs: &FieldElement28) {
+        *self = &*self - rhs
+    }
+}
+impl Neg for FieldElement28 {
+    type Output = FieldElement28;
+
+    fn neg(self) -> Self::Output {
+        self.negate()
+    }
+}
+impl Neg for &FieldElement28 {
+    type Output = FieldElement28;
+
+    fn neg(self) -> Self::Output {
+        self.negate()
     }
 }
 
@@ -91,6 +191,17 @@ impl ConditionallySelectable for FieldElement28 {
     }
 }
 
+impl ConstantTimeEq for FieldElement28 {
+    fn ct_eq(&self, other: &Self) -> Choice {
+        let mut res = 0i32;
+        for i in 0..16 {
+            res |= (self[i] ^ other[i]) as i32;
+        }
+        res = ((res | -res) >> 31) + 1;
+        Choice::from(res as u8)
+    }
+}
+
 impl Default for FieldElement28 {
     fn default() -> FieldElement28 {
         FieldElement28::ZERO
@@ -104,10 +215,13 @@ impl Default for FieldElement28 {
 impl FieldElement28 {
     pub const ZERO: FieldElement28 = FieldElement28([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     pub const ONE: FieldElement28 = FieldElement28([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    pub const TWO: FieldElement28 = FieldElement28([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    pub const FOUR: FieldElement28 = FieldElement28([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     pub const MINUS_ONE: FieldElement28 = FieldElement28([
             268435454, 268435455, 268435455, 268435455, 268435455, 268435455, 268435455, 268435455,
             268435454, 268435455, 268435455, 268435455, 268435455, 268435455, 268435455, 268435455,
         ]);
+    pub const J: FieldElement28 = FieldElement28([156326, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 }
 
 ///
@@ -428,5 +542,19 @@ impl FieldElement28 {
             self[14].wrapping_sub(rhs[14]),
             self[15].wrapping_sub(rhs[15]),
         ])
+    }
+
+    pub fn pow(&self, exp: &FieldElement28) -> FieldElement28 {
+        let mut res = FieldElement56::ONE;
+        for j in (0..16).rev() {
+            let e = &exp[j];
+            for i in 0..32 {
+                res = res.square();
+                let tmp = res * self;
+                let c = Choice::from(((*e >> i) & 1) as u8);
+                res.conditional_assign(&tmp, c);
+            }
+        }
+        res
     }
 }

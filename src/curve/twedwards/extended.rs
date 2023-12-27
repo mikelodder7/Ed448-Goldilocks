@@ -1,6 +1,5 @@
 #![allow(non_snake_case)]
 
-use crate::constants::TWISTED_D;
 use crate::curve::edwards::ExtendedPoint as EdwardsExtendedPoint;
 use crate::curve::twedwards::affine::AffinePoint;
 use crate::curve::twedwards::extensible::ExtensiblePoint;
@@ -47,33 +46,37 @@ impl Eq for ExtendedPoint {}
 
 impl Default for ExtendedPoint {
     fn default() -> ExtendedPoint {
-        ExtendedPoint::identity()
+        ExtendedPoint::IDENTITY
     }
 }
 
 impl ExtendedPoint {
     /// Identity point
-    pub fn identity() -> ExtendedPoint {
-        ExtendedPoint {
-            X: FieldElement::ZERO,
-            Y: FieldElement::ONE,
-            Z: FieldElement::ONE,
-            T: FieldElement::ZERO,
-        }
-    }
+    pub const IDENTITY: ExtendedPoint = ExtendedPoint {
+        X: FieldElement::ZERO,
+        Y: FieldElement::ONE,
+        Z: FieldElement::ONE,
+        T: FieldElement::ZERO,
+    };
 
     /// Generator for the prime subgroup
-    pub const fn generator() -> ExtendedPoint {
-        crate::constants::TWISTED_EDWARDS_BASE_POINT
-    }
+    pub const GENERATOR: ExtendedPoint = ExtendedPoint {
+        X: crate::TWISTED_EDWARDS_BASE_POINT.X,
+        Y: crate::TWISTED_EDWARDS_BASE_POINT.Y,
+        Z: crate::TWISTED_EDWARDS_BASE_POINT.Z,
+        T: crate::TWISTED_EDWARDS_BASE_POINT.T,
+    };
+
     /// Doubles an extended point
     pub(crate) fn double(&self) -> ExtendedPoint {
         self.to_extensible().double().to_extended()
     }
+
     /// Adds an extended point to itself
     pub(crate) fn add(&self, other: &ExtendedPoint) -> ExtendedPoint {
         self.to_extensible().add_extended(other).to_extended()
     }
+
     /// Converts an ExtendedPoint to an ExtensiblePoint
     pub fn to_extensible(&self) -> ExtensiblePoint {
         ExtensiblePoint {
@@ -93,10 +96,8 @@ impl ExtendedPoint {
 
         let INV_Z = self.Z.invert();
 
-        let mut x = self.X * INV_Z;
-        x.strong_reduce();
-        let mut y = self.Y * INV_Z;
-        y.strong_reduce();
+        let x = self.X * INV_Z;
+        let y = self.Y * INV_Z;
 
         AffinePoint { x, y }
     }
@@ -145,24 +146,24 @@ impl ExtendedPoint {
         let ZZ = self.Z.square();
         let TT = self.T.square();
         let lhs = YY - XX;
-        let rhs = ZZ + TT * TWISTED_D;
+        let rhs = ZZ + TT * FieldElement::TWISTED_D;
 
         (XY == ZT) && (lhs == rhs)
     }
     /// Negates a point
     pub fn negate(&self) -> ExtendedPoint {
         ExtendedPoint {
-            X: self.X.negate(),
+            X: -self.X,
             Y: self.Y,
             Z: self.Z,
-            T: self.T.negate(),
+            T: -self.T,
         }
     }
     /// Torques a point
     pub fn torque(&self) -> ExtendedPoint {
         ExtendedPoint {
-            X: self.X.negate(),
-            Y: self.Y.negate(),
+            X: -self.X,
+            Y: -self.Y,
             Z: self.Z,
             T: self.T,
         }
@@ -171,7 +172,7 @@ impl ExtendedPoint {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::constants::{GOLDILOCKS_BASE_POINT, TWISTED_EDWARDS_BASE_POINT};
+    use crate::{GOLDILOCKS_BASE_POINT, TWISTED_EDWARDS_BASE_POINT};
 
     fn hex_to_field(hex: &'static str) -> FieldElement {
         assert_eq!(hex.len(), 56 * 2);
@@ -216,7 +217,7 @@ mod tests {
         assert!(c_1 == c_2);
 
         // Adding identity point should not change result
-        let c = c_1.to_extensible().add_extended(&ExtendedPoint::identity());
+        let c = c_1.to_extensible().add_extended(&ExtendedPoint::IDENTITY);
         assert!(c.to_extended() == c_1);
     }
 
@@ -238,6 +239,6 @@ mod tests {
         let a = TWISTED_EDWARDS_BASE_POINT;
         let neg_a = a.negate();
 
-        assert!(a.to_extensible().add_extended(&neg_a) == ExtensiblePoint::identity());
+        assert!(a.to_extensible().add_extended(&neg_a) == ExtensiblePoint::IDENTITY);
     }
 }

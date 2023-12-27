@@ -35,9 +35,7 @@ impl CompressedRistretto {
 }
 
 impl RistrettoPoint {
-    pub fn identity() -> RistrettoPoint {
-        RistrettoPoint(ExtendedPoint::identity())
-    }
+    pub const IDENTITY: RistrettoPoint = RistrettoPoint(ExtendedPoint::IDENTITY);
 
     pub fn equals(&self, other: &RistrettoPoint) -> bool {
         let XY = self.0.X * other.0.Y;

@@ -1,6 +1,5 @@
 #![allow(non_snake_case)]
 
-use crate::constants::{TWISTED_D, TWO_TIMES_TWISTED_D};
 use crate::curve::twedwards::{
     affine::AffineNielsPoint, extended::ExtendedPoint, projective::ProjectiveNielsPoint,
 };
@@ -39,22 +38,21 @@ impl PartialEq for ExtensiblePoint {
 impl Eq for ExtensiblePoint {}
 
 impl ExtensiblePoint {
-    pub fn identity() -> ExtensiblePoint {
-        ExtensiblePoint {
-            X: FieldElement::ZERO,
-            Y: FieldElement::ONE,
-            Z: FieldElement::ONE,
-            T1: FieldElement::ZERO,
-            T2: FieldElement::ONE,
-        }
-    }
+    pub const IDENTITY: ExtensiblePoint = ExtensiblePoint {
+        X: FieldElement::ZERO,
+        Y: FieldElement::ONE,
+        Z: FieldElement::ONE,
+        T1: FieldElement::ZERO,
+        T2: FieldElement::ONE,
+    };
+
     /// Doubles a point
     /// (3.3) https://iacr.org/archive/asiacrypt2008/53500329/53500329.pdf
     pub fn double(&self) -> ExtensiblePoint {
         let A = self.X.square();
         let B = self.Y.square();
         let C = self.Z.square() + self.Z.square();
-        let D = A.negate();
+        let D = -A;
         let E = (self.X + self.Y).square() - A - B;
         let G = D + B;
         let F = G - C;
@@ -77,7 +75,7 @@ impl ExtensiblePoint {
     pub fn add_extended(&self, other: &ExtendedPoint) -> ExtensiblePoint {
         let A = self.X * other.X;
         let B = self.Y * other.Y;
-        let C = self.T1 * self.T2 * other.T * TWISTED_D;
+        let C = self.T1 * self.T2 * other.T * FieldElement::TWISTED_D;
         let D = self.Z * other.Z;
         let E = (self.X + self.Y) * (other.X + other.Y) - A - B;
         let F = D - C;
@@ -97,7 +95,7 @@ impl ExtensiblePoint {
     pub fn sub_extended(&self, other: &ExtendedPoint) -> ExtensiblePoint {
         let A = self.X * other.X;
         let B = self.Y * other.Y;
-        let C = self.T1 * self.T2 * other.T * TWISTED_D;
+        let C = self.T1 * self.T2 * other.T * FieldElement::TWISTED_D;
         let D = self.Z * other.Z;
         let E = (self.X + self.Y) * (other.Y - other.X) + A - B;
         let F = D + C;
@@ -169,7 +167,7 @@ impl ExtensiblePoint {
             Y_plus_X: self.X + self.Y,
             Y_minus_X: self.Y - self.X,
             Z: self.Z + self.Z,
-            Td: self.T1 * self.T2 * TWO_TIMES_TWISTED_D,
+            Td: self.T1 * self.T2 * FieldElement::TWO_TIMES_TWISTED_D,
         }
     }
 }

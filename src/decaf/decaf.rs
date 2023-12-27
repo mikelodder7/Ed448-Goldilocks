@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use crate::constants::{DECAF_BASEPOINT, DECAF_FACTOR, NEG_EDWARDS_D, NEG_FOUR_TIMES_TWISTED_D};
+use crate::constants::DECAF_BASEPOINT;
 use crate::curve::twedwards::extended::ExtendedPoint;
 use crate::field::FieldElement;
 use std::fmt;
@@ -38,13 +38,9 @@ impl CompressedDecaf {
 }
 
 impl DecafPoint {
-    pub fn identity() -> DecafPoint {
-        DecafPoint(ExtendedPoint::identity())
-    }
+    pub const IDENTITY: DecafPoint = DecafPoint(ExtendedPoint::IDENTITY);
 
-    pub const fn generator() -> DecafPoint {
-        DECAF_BASEPOINT
-    }
+    pub const GENERATOR: DecafPoint = DECAF_BASEPOINT;
 
     pub fn equals(&self, other: &DecafPoint) -> bool {
         self.0.X * other.0.Y == self.0.Y * other.0.X
@@ -62,19 +58,19 @@ impl DecafPoint {
     // XXX: Using the twisted edwards coordinates, for this a = -1 and d = EDWARDS_D-1, but we can simply use the EDWARDS constants when simplified
     pub fn compress(&self) -> CompressedDecaf {
         let X = self.0.X;
-        let Y = self.0.Y;
+        // let Y = self.0.Y;
         let Z = self.0.Z;
         let T = self.0.T;
 
         let XX_TT = (X + T) * (X - T);
 
-        let (isr, _) = (X.square() * XX_TT * NEG_EDWARDS_D).inverse_square_root();
+        let (isr, _) = (X.square() * XX_TT * FieldElement::NEG_EDWARDS_D).inverse_square_root();
         let mut ratio = isr * XX_TT;
-        let altx = ratio * DECAF_FACTOR; // Sign choice
+        let altx = ratio * FieldElement::DECAF_FACTOR; // Sign choice
         ratio.conditional_negate(altx.is_negative());
         let k = ratio * Z - T;
 
-        let mut s = k * NEG_EDWARDS_D * isr * X;
+        let mut s = k * FieldElement::NEG_EDWARDS_D * isr * X;
         s.conditional_negate(s.is_negative());
 
         CompressedDecaf(s.to_bytes())
@@ -106,7 +102,7 @@ impl CompressedDecaf {
         let u2 = FieldElement::ONE + ss;
         let u1_sqr = u1.square();
 
-        let v = ss * (NEG_FOUR_TIMES_TWISTED_D) + u1_sqr; // XXX: constantify please
+        let v = ss * (FieldElement::NEG_FOUR_TIMES_TWISTED_D) + u1_sqr; // XXX: constantify please
 
         let (I, ok) = (v * u1_sqr).inverse_square_root();
         if ok.unwrap_u8() == 0 {
@@ -117,7 +113,7 @@ impl CompressedDecaf {
         let Dxs = (s + s) * Dx;
 
         let mut X = (Dxs * I) * v;
-        let k = Dxs * DECAF_FACTOR;
+        let k = Dxs * FieldElement::DECAF_FACTOR;
         X.conditional_negate(k.is_negative());
 
         let Y = Dx * u2;
@@ -128,9 +124,10 @@ impl CompressedDecaf {
     }
 }
 
+#[cfg(test)]
 mod test {
     use super::*;
-    use crate::constants::TWISTED_EDWARDS_BASE_POINT;
+    use crate::TWISTED_EDWARDS_BASE_POINT;
 
     #[test]
     fn test_edwards_ristretto_operations() {
@@ -156,7 +153,7 @@ mod test {
     #[test]
     fn test_identity() {
         // Basic test to check the identity is being encoded properly
-        let compress_identity = DecafPoint::identity().compress();
+        let compress_identity = DecafPoint::IDENTITY.compress();
         assert!(compress_identity == CompressedDecaf::identity())
     }
 
@@ -259,8 +256,8 @@ mod test {
                 86,
             ]),
         ];
-        let mut point = DecafPoint::identity();
-        let generator = DecafPoint::generator();
+        let mut point = DecafPoint::IDENTITY;
+        let generator = DecafPoint::GENERATOR;
         for compressed_point in compressed.iter() {
             assert_eq!(&point.compress(), compressed_point);
             point = &point + &generator;

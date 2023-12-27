@@ -46,8 +46,9 @@ impl ConditionallyNegatable for ProjectiveNielsPoint {
 
 impl ProjectiveNielsPoint {
     pub fn identity() -> ProjectiveNielsPoint {
-        ExtensiblePoint::identity().to_projective_niels()
+        ExtensiblePoint::IDENTITY.to_projective_niels()
     }
+
     pub fn to_extended(&self) -> ExtendedPoint {
         let A = self.Y_plus_X - self.Y_minus_X;
         let B = self.Y_plus_X + self.Y_minus_X;
@@ -65,12 +66,12 @@ mod tests {
 
     #[test]
     fn test_conditional_negate() {
-        let bp = ExtendedPoint::generator();
+        let bp = ExtendedPoint::GENERATOR;
 
         let mut bp_neg = bp.to_extensible().to_projective_niels();
         bp_neg.conditional_negate(1.into());
 
         let expect_identity = bp_neg.to_extended().add(&bp);
-        assert_eq!(ExtendedPoint::identity(), expect_identity);
+        assert_eq!(ExtendedPoint::IDENTITY, expect_identity);
     }
 }

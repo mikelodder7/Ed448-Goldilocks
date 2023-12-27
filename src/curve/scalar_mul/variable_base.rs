@@ -6,7 +6,7 @@ use crate::field::Scalar;
 use subtle::{Choice, ConditionallyNegatable};
 
 pub fn variable_base(point: &ExtendedPoint, s: &Scalar) -> ExtendedPoint {
-    let mut result = ExtensiblePoint::identity();
+    let mut result = ExtensiblePoint::IDENTITY;
 
     // Recode Scalar
     let scalar = s.to_radix_16();
@@ -37,8 +37,8 @@ pub fn variable_base(point: &ExtendedPoint, s: &Scalar) -> ExtendedPoint {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::constants::TWISTED_EDWARDS_BASE_POINT;
     use crate::curve::scalar_mul::double_and_add;
+    use crate::TWISTED_EDWARDS_BASE_POINT;
 
     #[test]
     fn test_scalar_mul() {
