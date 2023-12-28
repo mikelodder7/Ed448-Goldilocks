@@ -8,7 +8,6 @@ use crate::curve::edwards::affine::AffinePoint;
 use crate::curve::montgomery::montgomery::MontgomeryPoint; // XXX: need to fix this path
 use crate::curve::scalar_mul::variable_base;
 use crate::curve::twedwards::extended::ExtendedPoint as TwistedExtendedPoint;
-use crate::curve::{iso448, map_to_curve_elligator2};
 use crate::field::{FieldElement, Scalar};
 use elliptic_curve::hash2curve::{ExpandMsg, ExpandMsgXof, Expander, FromOkm};
 use elliptic_curve::{
@@ -543,13 +542,12 @@ impl EdwardsPoint {
         let u0 = FieldElement::from_okm(&random_bytes);
         expander.fill_bytes(&mut random_bytes);
         let u1 = FieldElement::from_okm(&random_bytes);
-        let mut q0 = map_to_curve_elligator2(&u0);
-        let mut q1 = map_to_curve_elligator2(&u1);
-        q0 = iso448(&q0);
-        q1 = iso448(&q1);
-        let cofactor = Scalar::from(4u8);
+        let mut q0 = u0.map_to_curve_elligator2();
+        let mut q1 = u1.map_to_curve_elligator2();
+        q0 = q0.isogeny();
+        q1 = q1.isogeny();
 
-        (q0.to_extended() + q1.to_extended()).scalar_mul(&cofactor)
+        (q0.to_extended() + q1.to_extended()).scalar_mul(&Scalar::FOUR)
     }
 
     /// Encode using the default domain separation tag and hash function
@@ -568,11 +566,10 @@ impl EdwardsPoint {
         let mut expander = X::expand_message(&[msg], &dst, random_bytes.len()).unwrap();
         expander.fill_bytes(&mut random_bytes);
         let u0 = FieldElement::from_okm(&random_bytes);
-        let mut q0 = map_to_curve_elligator2(&u0);
-        q0 = iso448(&q0);
-        let cofactor = Scalar::from(4u8);
+        let mut q0 = u0.map_to_curve_elligator2();
+        q0 = q0.isogeny();
 
-        q0.to_extended().scalar_mul(&cofactor)
+        q0.to_extended().scalar_mul(&Scalar::FOUR)
     }
 }
 

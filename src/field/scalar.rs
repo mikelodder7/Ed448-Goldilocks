@@ -486,6 +486,8 @@ impl Scalar {
 
     pub const TWO: Scalar = Scalar([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 
+    pub(crate) const FOUR: Scalar = Scalar([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
     pub const ZERO: Scalar = Scalar([0; 14]);
 
     pub fn is_zero(&self) -> Choice {

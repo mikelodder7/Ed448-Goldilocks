@@ -2,6 +2,7 @@ mod scalar;
 
 pub use scalar::{Scalar, ScalarBytes, WideScalarBytes};
 
+use crate::curve::edwards::affine::AffinePoint;
 use crate::curve::edwards::EdwardsPoint;
 use crate::curve::twedwards::extended::ExtendedPoint as TwExtendedPoint;
 
@@ -17,7 +18,7 @@ use std::{
     fmt::{Debug, Display, Formatter, LowerHex, Result as FmtResult, UpperHex},
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
-use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
+use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq};
 use zeroize::DefaultIsZeroes;
 
 pub const GOLDILOCKS_BASE_POINT: EdwardsPoint = EdwardsPoint {
@@ -363,6 +364,29 @@ impl FieldElement {
         // will be zero, which is what we want, but is_res will be 0)
         let zero_u = u.ct_eq(&FieldElement::ZERO);
         (inv_sqrt_x * u, zero_u | is_res)
+    }
+
+    pub(crate) fn map_to_curve_elligator2(&self) -> AffinePoint {
+        let mut t1 = self.square(); // 1.   t1 = u^2
+        t1 *= Self::Z; // 2.   t1 = Z * t1              // Z * u^2
+        let e1 = t1.ct_eq(&Self::MINUS_ONE); // 3.   e1 = t1 == -1            // exceptional case: Z * u^2 == -1
+        t1.conditional_assign(&Self::ZERO, e1); // 4.   t1 = CMOV(t1, 0, e1)     // if t1 == -1, set t1 = 0
+        let mut x1 = t1 + Self::ONE; // 5.   x1 = t1 + 1
+        x1 = x1.invert(); // 6.   x1 = inv0(x1)
+        x1 *= -Self::J; // 7.   x1 = -A * x1             // x1 = -A / (1 + Z * u^2)
+        let mut gx1 = x1 + Self::J; // 8.  gx1 = x1 + A
+        gx1 *= x1; // 9.  gx1 = gx1 * x1
+        gx1 += Self::ONE; // 10. gx1 = gx1 + B
+        gx1 *= x1; // 11. gx1 = gx1 * x1            // gx1 = x1^3 + A * x1^2 + B * x1
+        let x2 = -x1 - Self::J; // 12.  x2 = -x1 - A
+        let gx2 = t1 * gx1; // 13. gx2 = t1 * gx1
+        let e2 = gx1.is_square(); // 14.  e2 = is_square(gx1)
+        let x = Self::conditional_select(&x2, &x1, e2); // 15.   x = CMOV(x2, x1, e2)    // If is_square(gx1), x = x1, else x = x2
+        let y2 = Self::conditional_select(&gx2, &gx1, e2); // 16.  y2 = CMOV(gx2, gx1, e2)  // If is_square(gx1), y2 = gx1, else y2 = gx2
+        let mut y = y2.sqrt(); // 17.   y = sqrt(y2)
+        let e3 = y.is_negative(); // 18.  e3 = sgn0(y) == 1
+        y.conditional_negate(e2 ^ e3); //       y = CMOV(-y, y, e2 xor e3)
+        AffinePoint { x, y }
     }
 }
 

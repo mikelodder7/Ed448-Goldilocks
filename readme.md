@@ -67,3 +67,5 @@ The library design was taken from Dalek's design of Curve25519. The code for Mon
 The golang implementation of Ed448 and libdecaf were used as references.
 
 Special thanks to Mike Hamburg for answering all of the questions asked regarding Decaf and goldilocks.
+
+This library adds [hash_to_curve](https://datatracker.ietf.org/doc/rfc9380/) and serialization of structs.
