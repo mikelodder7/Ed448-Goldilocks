@@ -91,7 +91,7 @@ impl TryFrom<&[u8]> for DecafPoint {
     type Error = String;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        let compressed = <DecafPointBytes>::try_from(&bytes[..]).map_err(|e| e.to_string())?;
+        let compressed = <DecafPointBytes>::try_from(bytes).map_err(|e| e.to_string())?;
         Self::try_from(compressed)
     }
 }
@@ -239,7 +239,7 @@ impl TryFrom<&[u8]> for CompressedDecaf {
     type Error = String;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        let compressed = <DecafPointBytes>::try_from(&bytes[..]).map_err(|e| e.to_string())?;
+        let compressed = <DecafPointBytes>::try_from(bytes).map_err(|e| e.to_string())?;
         Self::try_from(compressed)
     }
 }
@@ -268,6 +268,64 @@ impl TryFrom<&DecafPointBytes> for CompressedDecaf {
 
     fn try_from(bytes: &DecafPointBytes) -> Result<Self, Self::Error> {
         Self::try_from(*bytes)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for CompressedDecaf {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        if s.is_human_readable() {
+            hex::encode(self.0).serialize(s)
+        } else {
+            use serde::ser::SerializeTuple;
+
+            let mut tup = s.serialize_tuple(self.0.len())?;
+            for b in self.0.iter() {
+                tup.serialize_element(b)?;
+            }
+            tup.end()
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for CompressedDecaf {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        if d.is_human_readable() {
+            let s = String::deserialize(d)?;
+            let bytes = hex::decode(s).map_err(serde::de::Error::custom)?;
+            Self::try_from(bytes).map_err(serde::de::Error::custom)
+        } else {
+            use serde::de::SeqAccess;
+
+            struct CompressedDecafVisitor;
+
+            impl<'de> serde::de::Visitor<'de> for CompressedDecafVisitor {
+                type Value = CompressedDecaf;
+
+                fn expecting(&self, f: &mut Formatter) -> FmtResult {
+                    write!(f, "a sequence of 56 bytes")
+                }
+
+                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                where
+                    A: SeqAccess<'de>,
+                {
+                    let mut bytes = [0u8; 56];
+                    for i in 0..bytes.len() {
+                        bytes[i] = seq
+                            .next_element()?
+                            .ok_or_else(|| serde::de::Error::invalid_length(i, &"56"))?;
+                    }
+                    Self::Value::try_from(bytes).map_err(serde::de::Error::custom)
+                }
+            }
+
+            d.deserialize_tuple(56, CompressedDecafVisitor)
+        }
     }
 }
 

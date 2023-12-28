@@ -83,7 +83,7 @@ impl Mul<&Scalar> for &MontgomeryPoint {
         let mut swap = 0;
         for s in (0..448).rev() {
             let bit = bits[s] as u8;
-            let choice: u8 = (swap ^ bit) as u8;
+            let choice: u8 = swap ^ bit;
 
             ProjectiveMontgomeryPoint::conditional_swap(&mut x0, &mut x1, Choice::from(choice));
             differential_add_and_double(&mut x0, &mut x1, &affine_u);

@@ -13,7 +13,7 @@ impl<'s, 'p> Mul<&'s Scalar> for &'p DecafPoint {
     type Output = DecafPoint;
     fn mul(self, scalar: &'s Scalar) -> DecafPoint {
         // XXX: We can do better than double and add
-        DecafPoint(double_and_add(&self.0, &scalar))
+        DecafPoint(double_and_add(&self.0, scalar))
     }
 }
 impl<'p, 's> Mul<&'p DecafPoint> for &'s Scalar {

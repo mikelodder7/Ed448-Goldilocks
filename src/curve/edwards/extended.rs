@@ -213,16 +213,8 @@ impl<'de> serde::Deserialize<'de> for CompressedEdwardsY {
     {
         if d.is_human_readable() {
             let s = String::deserialize(d)?;
-            let bytes = hex::decode(&s).map_err(serde::de::Error::custom)?;
-            if bytes.len() != 57 {
-                return Err(serde::de::Error::custom("invalid length"));
-            }
-            let mut buf = [0u8; 57];
-            buf.copy_from_slice(&bytes);
-            let pt = CompressedEdwardsY(buf);
-            let _ = Option::<EdwardsPoint>::from(pt.decompress())
-                .ok_or_else(|| serde::de::Error::custom("invalid point"))?;
-            Ok(pt)
+            let bytes = hex::decode(s).map_err(serde::de::Error::custom)?;
+            CompressedEdwardsY::try_from(bytes).map_err(serde::de::Error::custom)
         } else {
             use serde::de::{SeqAccess, Visitor};
 
@@ -245,10 +237,7 @@ impl<'de> serde::Deserialize<'de> for CompressedEdwardsY {
                             .next_element()?
                             .ok_or_else(|| serde::de::Error::invalid_length(i, &self))?;
                     }
-                    let pt = CompressedEdwardsY(buf);
-                    let _ = Option::<EdwardsPoint>::from(pt.decompress())
-                        .ok_or_else(|| serde::de::Error::custom("invalid point"))?;
-                    Ok(pt)
+                    CompressedEdwardsY::try_from(buf).map_err(serde::de::Error::custom)
                 }
             }
 
@@ -277,7 +266,7 @@ impl CompressedEdwardsY {
         let (sign, b) = self.0.split_last().unwrap();
 
         let mut y_bytes: [u8; 56] = [0; 56];
-        y_bytes.copy_from_slice(&b);
+        y_bytes.copy_from_slice(b);
 
         // Recover x using y
         let y = FieldElement::from_bytes(&y_bytes);
@@ -295,7 +284,7 @@ impl CompressedEdwardsY {
 
         let pt = AffinePoint { x, y }.to_edwards();
 
-        CtOption::new(pt, is_res & pt.is_on_curve())
+        CtOption::new(pt, is_res & pt.is_on_curve() & pt.is_torsion_free())
     }
 
     /// View this `CompressedEdwardsY` as an array of bytes.
@@ -544,7 +533,7 @@ impl EdwardsPoint {
         // Use isogeny and dual isogeny to compute phi^-1((s/4) * phi(P))
         let partial_result = variable_base(&self.to_twisted(), &scalar_div_four).to_untwisted();
         // Add partial result to (scalar mod 4) * P
-        partial_result.add(&self.scalar_mod_four(&scalar))
+        partial_result.add(&self.scalar_mod_four(scalar))
     }
 
     /// Returns (scalar mod 4) * P in constant time
@@ -554,7 +543,7 @@ impl EdwardsPoint {
 
         // Compute all possible values of (scalar mod 4) * P
         let zero_p = EdwardsPoint::IDENTITY;
-        let one_p = self.clone();
+        let one_p = self;
         let two_p = one_p.double();
         let three_p = two_p.add(self);
 
@@ -585,10 +574,8 @@ impl EdwardsPoint {
         let sign = affine_x.is_negative().unwrap_u8();
 
         let y_bytes = affine_y.to_bytes();
-        for i in 0..y_bytes.len() {
-            compressed_bytes[i] = y_bytes[i]
-        }
-        *compressed_bytes.last_mut().unwrap() = (sign as u8) << 7;
+        compressed_bytes[..y_bytes.len()].copy_from_slice(&y_bytes[..]);
+        *compressed_bytes.last_mut().unwrap() = sign << 7;
         CompressedEdwardsY(compressed_bytes)
     }
 
@@ -712,8 +699,8 @@ impl EdwardsPoint {
     /// prime-order subgroup;
     /// * `false` if `self` has a nonzero torsion component and is not
     /// in the prime-order subgroup.
-    pub fn is_torsion_free(&self) -> bool {
-        (self * BASEPOINT_ORDER) == Self::IDENTITY
+    pub fn is_torsion_free(&self) -> Choice {
+        (self * BASEPOINT_ORDER).ct_eq(&Self::IDENTITY)
     }
 
     /// Hash using the default domain separation tag and hash function
@@ -739,7 +726,7 @@ impl EdwardsPoint {
         q0 = q0.isogeny();
         q1 = q1.isogeny();
 
-        (q0.to_edwards() + q1.to_edwards()).scalar_mul(&Scalar::FOUR)
+        (q0.to_edwards() + q1.to_edwards()).double().double()
     }
 
     /// Encode using the default domain separation tag and hash function
@@ -761,7 +748,55 @@ impl EdwardsPoint {
         let mut q0 = u0.map_to_curve_elligator2();
         q0 = q0.isogeny();
 
-        q0.to_edwards().scalar_mul(&Scalar::FOUR)
+        q0.to_edwards().double().double()
+    }
+
+    /// Compute pippenger multi-exponentiation.
+    /// Pippenger relies on scalars in canonical form
+    /// This uses a fixed window of 4 to be constant time
+    pub fn sum_of_products_pippenger(points: &[Self], scalars: &[Scalar]) -> Self {
+        const UPPER: usize = 256;
+        const W: usize = 4;
+        const WINDOWS: usize = UPPER / W; // careful--use ceiling division in case this doesn't divide evenly
+        const BUCKET_SIZE: usize = 1 << W;
+        const EDGE: usize = BUCKET_SIZE - 1;
+
+        let num_components = core::cmp::min(points.len(), scalars.len());
+
+        let mut windows = [Self::IDENTITY; WINDOWS];
+        let bytes = scalars.iter().map(Scalar::to_bytes).collect::<Vec<_>>();
+
+        for j in 0..WINDOWS {
+            let mut buckets = [Self::IDENTITY; BUCKET_SIZE];
+
+            for i in 0..num_components {
+                // j*W to get the nibble
+                // >> 3 to convert to byte, / 8
+                // (W * j & W) gets the nibble, mod W
+                // 1 << W - 1 to get the offset
+                let index = (bytes[i][j * W >> 3] >> (W * j & W)) as usize & EDGE; // little-endian
+                buckets[index] += points[i];
+            }
+
+            let mut sum = Self::IDENTITY;
+
+            let mut i = BUCKET_SIZE - 1;
+            while i > 0 {
+                sum += buckets[i];
+                windows[j] += sum;
+                i -= 1;
+            }
+        }
+
+        let mut p = Self::IDENTITY;
+        for i in (0..WINDOWS).rev() {
+            for _ in 0..W {
+                p = p.double();
+            }
+
+            p += windows[i];
+        }
+        p
     }
 }
 
@@ -992,17 +1027,17 @@ mod tests {
     }
     #[test]
     fn test_is_torsion_free() {
-        assert!(EdwardsPoint::GENERATOR.is_torsion_free());
-        assert!(EdwardsPoint::IDENTITY.is_torsion_free());
+        assert_eq!(EdwardsPoint::GENERATOR.is_torsion_free().unwrap_u8(), 1u8);
+        assert_eq!(EdwardsPoint::IDENTITY.is_torsion_free().unwrap_u8(), 1u8);
 
         let bytes = hex!("13b6714c7a5f53101bbec88f2f17cd30f42e37fae363a5474efb4197ed6005df5861ae178a0c2c16ad378b7befed0d0904b7ced35e9f674180");
         let compressed = CompressedEdwardsY(bytes);
-        let decompressed = compressed.decompress().unwrap();
-        assert!(!decompressed.is_torsion_free());
+        let decompressed = compressed.decompress();
+        assert_eq!(decompressed.is_none().unwrap_u8(), 1u8);
     }
 
     #[test]
-    fn hash() {
+    fn hash_with_test_vectors() {
         const DST: &[u8] = b"QUUX-V01-CS02-with-edwards448_XOF:SHAKE256_ELL2_RO_";
         const MSGS: &[(&[u8], [u8; 56], [u8; 56])] = &[
             (b"", hex!("73036d4a88949c032f01507005c133884e2f0d81f9a950826245dda9e844fc78186c39daaa7147ead3e462cff60e9c6340b58134480b4d17"), hex!("94c1d61b43728e5d784ef4fcb1f38e1075f3aef5e99866911de5a234f1aafdc26b554344742e6ba0420b71b298671bbeb2b7736618634610")),
@@ -1024,6 +1059,17 @@ mod tests {
             yy.reverse();
             assert_eq!(p.x.to_bytes(), xx);
             assert_eq!(p.y.to_bytes(), yy);
+        }
+    }
+
+    #[test]
+    fn hash_fuzzing() {
+        for _ in 0..25 {
+            let mut msg = [0u8; 64];
+            rand_core::OsRng.fill_bytes(&mut msg);
+            let p = EdwardsPoint::hash_with_defaults(&msg);
+            assert_eq!(p.is_on_curve().unwrap_u8(), 1u8);
+            assert_eq!(p.is_torsion_free().unwrap_u8(), 1u8);
         }
     }
 
@@ -1054,7 +1100,24 @@ mod tests {
     }
 
     #[test]
-    fn test_vectors() {
-        println!("{:?}", EdwardsPoint::GENERATOR.compress().0);
+    fn test_sum_of_products() {
+        let scalars = [
+            Scalar::from(8u8),
+            Scalar::from(9u8),
+            Scalar::from(10u8),
+            Scalar::from(11u8),
+            Scalar::from(12u8),
+        ];
+        let points = [
+            EdwardsPoint::GENERATOR,
+            EdwardsPoint::GENERATOR,
+            EdwardsPoint::GENERATOR,
+            EdwardsPoint::GENERATOR,
+            EdwardsPoint::GENERATOR,
+        ];
+
+        let expected = EdwardsPoint::GENERATOR * Scalar::from(50u8);
+        let result = EdwardsPoint::sum_of_products_pippenger(&points, &scalars);
+        assert_eq!(result, expected);
     }
 }

@@ -494,13 +494,8 @@ impl<'de> serde::Deserialize<'de> for Scalar {
         if d.is_human_readable() {
             let hex_s = String::deserialize(d)?;
             let bytes =
-                hex::decode(&hex_s).map_err(|_| serde::de::Error::custom("invalid hex string"))?;
-            if bytes.len() != 57 {
-                return Err(serde::de::Error::custom("invalid byte length"));
-            }
-            let scalar_bytes = ScalarBytes::clone_from_slice(&bytes[..]);
-            Option::<Scalar>::from(Scalar::from_canonical_bytes(&scalar_bytes))
-                .ok_or_else(|| serde::de::Error::custom("scalar was not canonically encoded"))
+                hex::decode(hex_s).map_err(|_| serde::de::Error::custom("invalid hex string"))?;
+            Scalar::try_from(&bytes[..]).map_err(serde::de::Error::custom)
         } else {
             use serde::de::{SeqAccess, Visitor};
 
@@ -523,9 +518,7 @@ impl<'de> serde::Deserialize<'de> for Scalar {
                             serde::de::Error::invalid_length(i, &"expected 57 bytes")
                         })?;
                     }
-                    Option::<Scalar>::from(Scalar::from_canonical_bytes(&scalar)).ok_or_else(|| {
-                        serde::de::Error::custom("scalar was not canonically encoded")
-                    })
+                    Scalar::try_from(&scalar[..]).map_err(serde::de::Error::custom)
                 }
             }
 
@@ -576,8 +569,6 @@ impl Scalar {
     pub const ONE: Scalar = Scalar([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 
     pub const TWO: Scalar = Scalar([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-
-    pub(crate) const FOUR: Scalar = Scalar([4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 
     pub const ZERO: Scalar = Scalar([0; 14]);
 
@@ -807,13 +798,13 @@ impl Scalar {
     /// Construct a `Scalar` by reducing a 912-bit little-endian integer
     /// modulo the group order ℓ.
     pub fn from_bytes_mod_order_wide(input: &WideScalarBytes) -> Scalar {
-        let lo: [u8; 56] = core::array::from_fn(|i| input[i]);
+        let lo: [u8; 56] = (&input[..56]).try_into().unwrap();
         let lo = Scalar::from_bytes(&lo);
         // montgomery_multiply computes ((a*b)/R) mod ℓ, thus this computes
         // ((lo*R)/R) = lo mod ℓ
         let lo = montgomery_multiply(&lo, &R);
 
-        let hi: [u8; 56] = core::array::from_fn(|i| input[i + 56]);
+        let hi: [u8; 56] = (&input[56..112]).try_into().unwrap();
         let hi = Scalar::from_bytes(&hi);
         // ((hi*R^2)/R) = hi * R mod ℓ
         let hi = montgomery_multiply(&hi, &R2);
