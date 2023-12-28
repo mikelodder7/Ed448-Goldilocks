@@ -6,6 +6,9 @@ use crate::field::FieldElement;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption};
 
+/// The bytes representation of a compressed point
+pub type DecafPointBytes = [u8; 56];
+
 #[derive(Copy, Clone, Debug)]
 pub struct DecafPoint(pub(crate) ExtendedPoint);
 
@@ -44,21 +47,99 @@ impl PartialEq for DecafPoint {
 
 impl Eq for DecafPoint {}
 
+impl From<DecafPoint> for DecafPointBytes {
+    fn from(point: DecafPoint) -> DecafPointBytes {
+        point.compress().0
+    }
+}
+
+impl From<&DecafPoint> for DecafPointBytes {
+    fn from(compressed: &DecafPoint) -> DecafPointBytes {
+        Self::from(*compressed)
+    }
+}
+
+impl From<DecafPoint> for Vec<u8> {
+    fn from(compressed: DecafPoint) -> Vec<u8> {
+        Self::from(&compressed)
+    }
+}
+
+impl From<&DecafPoint> for Vec<u8> {
+    fn from(point: &DecafPoint) -> Vec<u8> {
+        point.compress().0.to_vec()
+    }
+}
+
+impl TryFrom<Vec<u8>> for DecafPoint {
+    type Error = String;
+
+    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(bytes.as_slice())
+    }
+}
+
+impl TryFrom<&Vec<u8>> for DecafPoint {
+    type Error = String;
+
+    fn try_from(bytes: &Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(bytes.as_slice())
+    }
+}
+
+impl TryFrom<&[u8]> for DecafPoint {
+    type Error = String;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        let compressed = <DecafPointBytes>::try_from(&bytes[..]).map_err(|e| e.to_string())?;
+        Self::try_from(compressed)
+    }
+}
+
+impl TryFrom<Box<[u8]>> for DecafPoint {
+    type Error = String;
+
+    fn try_from(bytes: Box<[u8]>) -> Result<Self, Self::Error> {
+        Self::try_from(bytes.as_ref())
+    }
+}
+
+impl TryFrom<DecafPointBytes> for DecafPoint {
+    type Error = String;
+
+    fn try_from(bytes: DecafPointBytes) -> Result<Self, Self::Error> {
+        let pt = CompressedDecaf(bytes);
+        Option::<DecafPoint>::from(pt.decompress())
+            .ok_or_else(|| "Invalid point encoding".to_string())
+    }
+}
+
+impl TryFrom<&DecafPointBytes> for DecafPoint {
+    type Error = String;
+
+    fn try_from(bytes: &DecafPointBytes) -> Result<Self, Self::Error> {
+        Self::try_from(*bytes)
+    }
+}
+
 impl DecafPoint {
+    /// The identity point
     pub const IDENTITY: DecafPoint = DecafPoint(ExtendedPoint::IDENTITY);
 
+    /// The generator point
     pub const GENERATOR: DecafPoint = DECAF_BASEPOINT;
 
+    /// Add two points
     pub fn add(&self, other: &DecafPoint) -> DecafPoint {
         DecafPoint(self.0.to_extensible().add_extended(&other.0).to_extended())
     }
 
+    /// Subtract two points
     pub fn sub(&self, other: &DecafPoint) -> DecafPoint {
         DecafPoint(self.0.to_extensible().sub_extended(&other.0).to_extended())
     }
 
-    // This will be simpler than the curve2519 case, as there is no need to lift the points
-    // XXX: Using the twisted edwards coordinates, for this a = -1 and d = EDWARDS_D-1, but we can simply use the EDWARDS constants when simplified
+    /// Compress this point
     pub fn compress(&self) -> CompressedDecaf {
         let X = self.0.X;
         // let Y = self.0.Y;
@@ -80,8 +161,9 @@ impl DecafPoint {
     }
 }
 
+/// A compressed decaf point
 #[derive(Copy, Clone, Debug)]
-pub struct CompressedDecaf(pub [u8; 56]);
+pub struct CompressedDecaf(pub DecafPointBytes);
 
 impl Default for CompressedDecaf {
     fn default() -> CompressedDecaf {
@@ -98,7 +180,7 @@ impl ConstantTimeEq for CompressedDecaf {
 impl ConditionallySelectable for CompressedDecaf {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         let mut bytes = [0u8; 56];
-        for i in 0..56 {
+        for i in 0..bytes.len() {
             bytes[i] = u8::conditional_select(&a.0[i], &b.0[i], choice);
         }
         Self(bytes)
@@ -113,12 +195,94 @@ impl PartialEq for CompressedDecaf {
 
 impl Eq for CompressedDecaf {}
 
+impl From<CompressedDecaf> for DecafPointBytes {
+    fn from(compressed: CompressedDecaf) -> DecafPointBytes {
+        compressed.0
+    }
+}
+
+impl From<&CompressedDecaf> for DecafPointBytes {
+    fn from(compressed: &CompressedDecaf) -> DecafPointBytes {
+        Self::from(*compressed)
+    }
+}
+
+impl From<CompressedDecaf> for Vec<u8> {
+    fn from(compressed: CompressedDecaf) -> Vec<u8> {
+        Self::from(&compressed)
+    }
+}
+
+impl From<&CompressedDecaf> for Vec<u8> {
+    fn from(compressed: &CompressedDecaf) -> Vec<u8> {
+        compressed.0.to_vec()
+    }
+}
+
+impl TryFrom<Vec<u8>> for CompressedDecaf {
+    type Error = String;
+
+    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(bytes.as_slice())
+    }
+}
+
+impl TryFrom<&Vec<u8>> for CompressedDecaf {
+    type Error = String;
+
+    fn try_from(bytes: &Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(bytes.as_slice())
+    }
+}
+
+impl TryFrom<&[u8]> for CompressedDecaf {
+    type Error = String;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        let compressed = <DecafPointBytes>::try_from(&bytes[..]).map_err(|e| e.to_string())?;
+        Self::try_from(compressed)
+    }
+}
+
+impl TryFrom<Box<[u8]>> for CompressedDecaf {
+    type Error = String;
+
+    fn try_from(bytes: Box<[u8]>) -> Result<Self, Self::Error> {
+        Self::try_from(bytes.as_ref())
+    }
+}
+
+impl TryFrom<DecafPointBytes> for CompressedDecaf {
+    type Error = String;
+
+    fn try_from(bytes: DecafPointBytes) -> Result<Self, Self::Error> {
+        let pt = CompressedDecaf(bytes);
+        let _ = Option::<DecafPoint>::from(pt.decompress())
+            .ok_or_else(|| "Invalid point encoding".to_string())?;
+        Ok(pt)
+    }
+}
+
+impl TryFrom<&DecafPointBytes> for CompressedDecaf {
+    type Error = String;
+
+    fn try_from(bytes: &DecafPointBytes) -> Result<Self, Self::Error> {
+        Self::try_from(*bytes)
+    }
+}
+
 impl CompressedDecaf {
     /// The compressed identity point
-    pub const IDENTITY: Self = Self([0; 56]);
+    pub const IDENTITY: Self = Self([0u8; 56]);
 
-    // XXX: We allow the identity point
-    /// XXX: Clean this up to be more descriptive of what is happening
+    /// The compressed generator point
+    pub const GENERATOR: Self = Self([
+        102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102,
+        102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51,
+        51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51,
+    ]);
+
+    /// Decompress a point if it is valid
     pub fn decompress(&self) -> CtOption<DecafPoint> {
         let s = FieldElement::from_bytes(&self.0);
         //XX: Check for canonical encoding and sign,
@@ -159,6 +323,7 @@ impl CompressedDecaf {
         )
     }
 
+    /// Get the bytes of this compressed point
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }

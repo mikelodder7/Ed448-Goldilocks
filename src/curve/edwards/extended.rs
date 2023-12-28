@@ -27,11 +27,14 @@ pub const DEFAULT_ENCODE_TO_CURVE_SUITE: &[u8] = b"edwards448_XOF:SHAKE256_ELL2_
 
 #[allow(non_snake_case)]
 
+/// The compressed internal representation of a point on the Twisted Edwards Curve
+pub type PointBytes = [u8; 57];
+
 /// Represents a point on the Compressed Twisted Edwards Curve
 /// in little endian format where the most significant bit is the sign bit
 /// and the remaining 448 bits represent the y-coordinate
 #[derive(Copy, Clone, Debug)]
-pub struct CompressedEdwardsY(pub [u8; 57]);
+pub struct CompressedEdwardsY(pub PointBytes);
 
 #[cfg(feature = "zeroize")]
 impl zeroize::Zeroize for CompressedEdwardsY {
@@ -103,9 +106,85 @@ impl AsRef<[u8]> for CompressedEdwardsY {
     }
 }
 
-impl AsRef<[u8; 57]> for CompressedEdwardsY {
-    fn as_ref(&self) -> &[u8; 57] {
+impl AsRef<PointBytes> for CompressedEdwardsY {
+    fn as_ref(&self) -> &PointBytes {
         &self.0
+    }
+}
+
+impl From<CompressedEdwardsY> for Vec<u8> {
+    fn from(value: CompressedEdwardsY) -> Self {
+        Self::from(&value)
+    }
+}
+
+impl From<&CompressedEdwardsY> for Vec<u8> {
+    fn from(value: &CompressedEdwardsY) -> Self {
+        value.0.to_vec()
+    }
+}
+
+impl TryFrom<Vec<u8>> for CompressedEdwardsY {
+    type Error = String;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(&value)
+    }
+}
+
+impl TryFrom<&Vec<u8>> for CompressedEdwardsY {
+    type Error = String;
+
+    fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_slice())
+    }
+}
+
+impl TryFrom<&[u8]> for CompressedEdwardsY {
+    type Error = String;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let bytes = <PointBytes>::try_from(value).map_err(|_| "Invalid length")?;
+        Self::try_from(&bytes)
+    }
+}
+
+impl TryFrom<Box<[u8]>> for CompressedEdwardsY {
+    type Error = String;
+
+    fn try_from(value: Box<[u8]>) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_ref())
+    }
+}
+
+impl From<CompressedEdwardsY> for PointBytes {
+    fn from(value: CompressedEdwardsY) -> Self {
+        value.0
+    }
+}
+
+impl From<&CompressedEdwardsY> for PointBytes {
+    fn from(value: &CompressedEdwardsY) -> Self {
+        Self::from(*value)
+    }
+}
+
+impl TryFrom<PointBytes> for CompressedEdwardsY {
+    type Error = String;
+
+    fn try_from(value: PointBytes) -> Result<Self, Self::Error> {
+        let pt = CompressedEdwardsY(value);
+        let _ = Option::<EdwardsPoint>::from(pt.decompress())
+            .ok_or_else(|| "Invalid point".to_string())?;
+        Ok(pt)
+    }
+}
+
+impl TryFrom<&PointBytes> for CompressedEdwardsY {
+    type Error = String;
+
+    fn try_from(value: &PointBytes) -> Result<Self, Self::Error> {
+        Self::try_from(*value)
     }
 }
 
@@ -179,6 +258,16 @@ impl<'de> serde::Deserialize<'de> for CompressedEdwardsY {
 }
 
 impl CompressedEdwardsY {
+    /// The compressed identity point
+    pub const IDENTITY: Self = Self([0u8; 57]);
+
+    /// The compressed generator point
+    pub const GENERATOR: Self = Self([
+        20, 250, 48, 242, 91, 121, 8, 152, 173, 200, 215, 78, 44, 19, 189, 253, 196, 57, 124, 230,
+        28, 255, 211, 58, 215, 194, 160, 5, 30, 156, 120, 135, 64, 152, 163, 108, 115, 115, 234,
+        75, 98, 199, 201, 86, 55, 32, 118, 136, 36, 188, 182, 110, 113, 70, 63, 105, 0,
+    ]);
+
     /// Attempt to decompress to an `EdwardsPoint`.
     ///
     /// Returns `None` if the input is not the \\(y\\)-coordinate of a
@@ -210,12 +299,12 @@ impl CompressedEdwardsY {
     }
 
     /// View this `CompressedEdwardsY` as an array of bytes.
-    pub const fn as_bytes(&self) -> &[u8; 57] {
+    pub const fn as_bytes(&self) -> &PointBytes {
         &self.0
     }
 
     /// Copy this `CompressedEdwardsY` to an array of bytes.
-    pub const fn to_bytes(&self) -> [u8; 57] {
+    pub const fn to_bytes(&self) -> PointBytes {
         self.0
     }
 }
@@ -378,13 +467,9 @@ impl TryFrom<&[u8]> for EdwardsPoint {
     type Error = String;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if value.len() != 57 {
-            return Err("Invalid length".to_string());
-        }
-        let mut bytes = [0u8; 57];
-        bytes.copy_from_slice(value);
-        Option::<Self>::from(CompressedEdwardsY(bytes).decompress())
-            .ok_or_else(|| "Invalid point".to_string())
+        let bytes = <PointBytes>::try_from(value)
+            .map_err(|_| "Invalid length, expected 57 bytes".to_string())?;
+        Self::try_from(bytes)
     }
 }
 
@@ -393,6 +478,35 @@ impl TryFrom<Box<[u8]>> for EdwardsPoint {
 
     fn try_from(value: Box<[u8]>) -> Result<Self, Self::Error> {
         Self::try_from(value.as_ref())
+    }
+}
+
+impl TryFrom<PointBytes> for EdwardsPoint {
+    type Error = String;
+
+    fn try_from(value: PointBytes) -> Result<Self, Self::Error> {
+        Option::<Self>::from(CompressedEdwardsY(value).decompress())
+            .ok_or_else(|| "Invalid point".to_string())
+    }
+}
+
+impl TryFrom<&PointBytes> for EdwardsPoint {
+    type Error = String;
+
+    fn try_from(value: &PointBytes) -> Result<Self, Self::Error> {
+        Self::try_from(*value)
+    }
+}
+
+impl From<EdwardsPoint> for PointBytes {
+    fn from(value: EdwardsPoint) -> Self {
+        value.compress().into()
+    }
+}
+
+impl From<&EdwardsPoint> for PointBytes {
+    fn from(value: &EdwardsPoint) -> Self {
+        Self::from(*value)
     }
 }
 
@@ -800,7 +914,7 @@ mod tests {
     fn test_isogeny() {
         let x = hex_to_field("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa955555555555555555555555555555555555555555555555555555555");
         let y = hex_to_field("ae05e9634ad7048db359d6205086c2b0036ed7a035884dd7b7e36d728ad8c4b80d6565833a2a3098bbbcb2bed1cda06bdaeafbcdea9386ed");
-        let a = AffinePoint { x, y }.to_extended();
+        let a = AffinePoint { x, y }.to_edwards();
         let twist_a = a.to_twisted().to_untwisted();
         assert!(twist_a == a.double().double())
     }
@@ -813,12 +927,12 @@ mod tests {
         // This was the original basepoint which had order 2q;
         let old_x = hex_to_field("4F1970C66BED0DED221D15A622BF36DA9E146570470F1767EA6DE324A3D3A46412AE1AF72AB66511433B80E18B00938E2626A82BC70CC05E");
         let old_y = hex_to_field("693F46716EB6BC248876203756C9C7624BEA73736CA3984087789C1E05A0C2D73AD3FF1CE67C39C4FDBD132C4ED7C8AD9808795BF230FA14");
-        let old_bp = AffinePoint { x: old_x, y: old_y }.to_extended();
+        let old_bp = AffinePoint { x: old_x, y: old_y }.to_edwards();
 
         // This is the new basepoint, that is in the ed448 paper
         let new_x = hex_to_field("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa955555555555555555555555555555555555555555555555555555555");
         let new_y = hex_to_field("ae05e9634ad7048db359d6205086c2b0036ed7a035884dd7b7e36d728ad8c4b80d6565833a2a3098bbbcb2bed1cda06bdaeafbcdea9386ed");
-        let new_bp = AffinePoint { x: new_x, y: new_y }.to_extended();
+        let new_bp = AffinePoint { x: new_x, y: new_y }.to_edwards();
 
         // Doubling the old basepoint, should give us the new basepoint
         assert_eq!(old_bp.double(), new_bp);
@@ -836,14 +950,14 @@ mod tests {
     fn test_is_on_curve() {
         let x = hex_to_field("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa955555555555555555555555555555555555555555555555555555555");
         let y = hex_to_field("ae05e9634ad7048db359d6205086c2b0036ed7a035884dd7b7e36d728ad8c4b80d6565833a2a3098bbbcb2bed1cda06bdaeafbcdea9386ed");
-        let gen = AffinePoint { x, y }.to_extended();
+        let gen = AffinePoint { x, y }.to_edwards();
         assert_eq!(gen.is_on_curve().unwrap_u8(), 1u8);
     }
     #[test]
     fn test_compress_decompress() {
         let x = hex_to_field("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa955555555555555555555555555555555555555555555555555555555");
         let y = hex_to_field("ae05e9634ad7048db359d6205086c2b0036ed7a035884dd7b7e36d728ad8c4b80d6565833a2a3098bbbcb2bed1cda06bdaeafbcdea9386ed");
-        let gen = AffinePoint { x, y }.to_extended();
+        let gen = AffinePoint { x, y }.to_edwards();
 
         let decompressed_point = gen.compress().decompress();
         assert!(<Choice as Into<bool>>::into(decompressed_point.is_some()));
@@ -937,5 +1051,10 @@ mod tests {
             assert_eq!(p.x.to_bytes(), xx);
             assert_eq!(p.y.to_bytes(), yy);
         }
+    }
+
+    #[test]
+    fn test_vectors() {
+        println!("{:?}", EdwardsPoint::GENERATOR.compress().0);
     }
 }

@@ -2,14 +2,17 @@ use core::iter::{Product, Sum};
 use core::ops::{Add, AddAssign, Index, IndexMut, Mul, MulAssign, Neg, Sub, SubAssign};
 
 use elliptic_curve::{
+    bigint::{Encoding, U704},
     ff::{helpers, Field},
     generic_array::{
-        typenum::{U114, U57},
+        typenum::{U114, U57, U84, U88},
         GenericArray,
     },
+    hash2curve::{ExpandMsg, Expander, FromOkm},
     PrimeField,
 };
 use rand_core::{CryptoRng, RngCore};
+use std::fmt::{Display, Formatter, Result as FmtResult};
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
 
 use crate::constants;
@@ -20,7 +23,9 @@ use crate::constants;
 #[derive(Debug, Copy, Clone)]
 pub struct Scalar(pub(crate) [u32; 14]);
 
+/// The number of bytes needed to represent the scalar field
 pub type ScalarBytes = GenericArray<u8, U57>;
+/// The number of bytes needed to represent the safely create a scalar from a random bytes
 pub type WideScalarBytes = GenericArray<u8, U114>;
 
 pub(crate) const MODULUS: Scalar = constants::BASEPOINT_ORDER;
@@ -34,6 +39,16 @@ const R: Scalar = Scalar([
     0x529eec34, 0x721cf5b5, 0xc8e9c2ab, 0x7a4cf635, 0x44a725bf, 0xeec492d9, 0xcd77058, 0x2, 0, 0,
     0, 0, 0, 0,
 ]);
+
+impl Display for Scalar {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        let bytes = self.to_bytes_rfc_8032();
+        for b in &bytes {
+            write!(f, "{:02x}", b)?;
+        }
+        Ok(())
+    }
+}
 
 impl ConstantTimeEq for Scalar {
     fn ct_eq(&self, other: &Self) -> Choice {
@@ -388,6 +403,67 @@ impl PrimeField for Scalar {
     const DELTA: Self = Self([0x961, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 }
 
+impl From<Scalar> for Vec<u8> {
+    fn from(scalar: Scalar) -> Vec<u8> {
+        Self::from(&scalar)
+    }
+}
+
+impl From<&Scalar> for Vec<u8> {
+    fn from(scalar: &Scalar) -> Vec<u8> {
+        scalar.to_bytes_rfc_8032().to_vec()
+    }
+}
+
+impl From<Scalar> for ScalarBytes {
+    fn from(scalar: Scalar) -> ScalarBytes {
+        Self::from(&scalar)
+    }
+}
+
+impl From<&Scalar> for ScalarBytes {
+    fn from(scalar: &Scalar) -> ScalarBytes {
+        scalar.to_bytes_rfc_8032()
+    }
+}
+
+impl TryFrom<Vec<u8>> for Scalar {
+    type Error = String;
+
+    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(&bytes[..])
+    }
+}
+
+impl TryFrom<&Vec<u8>> for Scalar {
+    type Error = String;
+
+    fn try_from(bytes: &Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(&bytes[..])
+    }
+}
+
+impl TryFrom<&[u8]> for Scalar {
+    type Error = String;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        if bytes.len() != 57 {
+            return Err("invalid byte length".to_string());
+        }
+        let scalar_bytes = ScalarBytes::clone_from_slice(&bytes[..]);
+        Option::<Scalar>::from(Scalar::from_canonical_bytes(&scalar_bytes))
+            .ok_or_else(|| "scalar was not canonically encoded".to_string())
+    }
+}
+
+impl TryFrom<Box<[u8]>> for Scalar {
+    type Error = String;
+
+    fn try_from(bytes: Box<[u8]>) -> Result<Self, Self::Error> {
+        Self::try_from(bytes.as_ref())
+    }
+}
+
 #[cfg(feature = "serde")]
 impl serde::Serialize for Scalar {
     fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
@@ -481,6 +557,21 @@ impl core::fmt::UpperHex for Scalar {
     }
 }
 
+impl FromOkm for Scalar {
+    type Length = U84;
+
+    fn from_okm(data: &GenericArray<u8, Self::Length>) -> Self {
+        const SEMI_WIDE_MODULUS: U704 = U704::from_be_hex("00000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3");
+        let mut tmp = GenericArray::<u8, U88>::default();
+        tmp[4..].copy_from_slice(&data[..]);
+
+        let mut num = U704::from_be_slice(&tmp[..]);
+        num = num.wrapping_rem(&SEMI_WIDE_MODULUS);
+        let bytes = <[u8; 56]>::try_from(&num.to_le_bytes()[..56]).unwrap();
+        Self::from_bytes(&bytes)
+    }
+}
+
 impl Scalar {
     pub const ONE: Scalar = Scalar([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 
@@ -490,6 +581,7 @@ impl Scalar {
 
     pub const ZERO: Scalar = Scalar([0; 14]);
 
+    /// Is this scalar equal to zero?
     pub fn is_zero(&self) -> Choice {
         let mut res = 0i32;
         let mut i = 0;
@@ -558,7 +650,8 @@ impl Scalar {
         bits
     }
 
-    pub fn from_bytes(bytes: [u8; 56]) -> Scalar {
+    /// Construct a `Scalar` from a little-endian byte representation.
+    pub fn from_bytes(bytes: &[u8; 56]) -> Scalar {
         let load7 = |input: &[u8]| -> u64 {
             (input[0] as u64)
                 | ((input[1] as u64) << 8)
@@ -576,6 +669,7 @@ impl Scalar {
         res
     }
 
+    /// Convert this `Scalar` to a little-endian byte array.
     pub fn to_bytes(&self) -> [u8; 56] {
         let mut res = [0u8; 56];
 
@@ -589,10 +683,12 @@ impl Scalar {
         res
     }
 
+    /// Square this scalar
     pub fn square(&self) -> Scalar {
         montgomery_multiply(self, self)
     }
 
+    /// Invert this scalar
     pub fn invert(&self) -> Self {
         let mut pre_comp = [Scalar::ZERO; 8];
         let mut result = Scalar::ZERO;
@@ -693,7 +789,7 @@ impl Scalar {
         // Check that the 10 high bits are not set
         let is_valid = is_zero(bytes[56]) | is_zero(bytes[55] >> 6);
         let bytes: [u8; 56] = core::array::from_fn(|i| bytes[i]);
-        let candidate = Scalar::from_bytes(bytes);
+        let candidate = Scalar::from_bytes(&bytes);
 
         let reduced = sub_extra(&candidate, &MODULUS, 0);
 
@@ -712,19 +808,19 @@ impl Scalar {
     /// modulo the group order ℓ.
     pub fn from_bytes_mod_order_wide(input: &WideScalarBytes) -> Scalar {
         let lo: [u8; 56] = core::array::from_fn(|i| input[i]);
-        let lo = Scalar::from_bytes(lo);
+        let lo = Scalar::from_bytes(&lo);
         // montgomery_multiply computes ((a*b)/R) mod ℓ, thus this computes
         // ((lo*R)/R) = lo mod ℓ
         let lo = montgomery_multiply(&lo, &R);
 
         let hi: [u8; 56] = core::array::from_fn(|i| input[i + 56]);
-        let hi = Scalar::from_bytes(hi);
+        let hi = Scalar::from_bytes(&hi);
         // ((hi*R^2)/R) = hi * R mod ℓ
         let hi = montgomery_multiply(&hi, &R2);
 
         // There are only two bytes left, build an array with them and pad with zeroes
         let top: [u8; 56] = core::array::from_fn(|i| if i < 2 { input[i + 112] } else { 0 });
-        let top = Scalar::from_bytes(top);
+        let top = Scalar::from_bytes(&top);
         // ((top*R^2)/R) = top * R mod ℓ
         let top = montgomery_multiply(&top, &R2);
         // (((top*R)*R^2)/R) = top * R^2 mod ℓ
@@ -747,6 +843,30 @@ impl Scalar {
         let mut scalar_bytes = WideScalarBytes::default();
         rng.fill_bytes(&mut scalar_bytes);
         Scalar::from_bytes_mod_order_wide(&scalar_bytes)
+    }
+
+    /// Computes the hash to field routine according to Section 5
+    /// <https://datatracker.ietf.org/doc/rfc9380/>
+    /// and returns a scalar.
+    ///
+    /// # Errors
+    /// See implementors of [`ExpandMsg`] for errors:
+    /// - [`ExpandMsgXmd`]
+    /// - [`ExpandMsgXof`]
+    ///
+    /// `len_in_bytes = <Self::Scalar as FromOkm>::Length`
+    ///
+    /// [`ExpandMsgXmd`]: crate::hash2curve::ExpandMsgXmd
+    /// [`ExpandMsgXof`]: crate::hash2curve::ExpandMsgXof
+    pub fn hash<X>(msg: &[u8], dst: &[u8]) -> Self
+    where
+        X: for<'a> ExpandMsg<'a>,
+    {
+        let mut random_bytes = GenericArray::<u8, U84>::default();
+        let dst = [dst];
+        let mut expander = X::expand_message(&[msg], &dst, random_bytes.len()).unwrap();
+        expander.fill_bytes(&mut random_bytes);
+        Self::from_okm(&random_bytes)
     }
 }
 
@@ -953,7 +1073,7 @@ mod test {
             0x15598f62, 0xb9b1ed71, 0x52fcd042, 0x862a9f10, 0x1e8a309f, 0x9988f8e0, 0xa22347d7,
             0xe9ab2c22, 0x38363f74, 0xfd7c58aa, 0xc49a1433, 0xd9a6c4c3, 0x75d3395e, 0x0d79f6e3,
         ]);
-        let got = Scalar::from_bytes(scalar.to_bytes());
+        let got = Scalar::from_bytes(&scalar.to_bytes());
         assert_eq!(scalar, got)
     }
     #[test]
@@ -1046,5 +1166,15 @@ mod test {
         let res = serde_bare::from_slice::<Scalar>(&sb);
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), Scalar::TWO_INV);
+    }
+
+    #[test]
+    fn scalar_hash() {
+        let msg = b"hello world";
+        let dst = b"edwards448_XOF:SHAKE256_ELL2_RO_";
+        let res =
+            Scalar::hash::<elliptic_curve::hash2curve::ExpandMsgXof<sha3::Shake256>>(msg, dst);
+        let expected = hex_literal::hex!("2d32a08f09b88275cc5f437e625696b18de718ed94559e17e4d64aafd143a8527705132178b5ce7395ea6214735387398a35913656b4951300");
+        assert_eq!(res.to_bytes_rfc_8032(), expected.into());
     }
 }
