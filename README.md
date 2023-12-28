@@ -2,6 +2,11 @@
 <img src="resources/bear.png" width = "400">
 </p>
 
+ed448-goldilocks-plus 
+
+[![Crate][crate-image]][crate-link]
+[![Docs][docs-image]][docs-link]
+![BSD-3 Licensed][license-image]
 
 THIS CODE HAS NOT BEEN AUDITED OR REVIEWED. USE AT YOUR OWN RISK.
 
@@ -69,3 +74,18 @@ The golang implementation of Ed448 and libdecaf were used as references.
 Special thanks to Mike Hamburg for answering all of the questions asked regarding Decaf and goldilocks.
 
 This library adds [hash_to_curve](https://datatracker.ietf.org/doc/rfc9380/) and serialization of structs.
+
+## Contribution
+
+Unless you explicitly state otherwise, any contribution intentionally
+submitted for inclusion in the work by you, as defined in the BSD-3-Clause
+license, shall be dual licensed as above, without any additional terms or
+conditions.
+
+[//]: # (badges)
+
+[crate-image]: https://img.shields.io/crates/v/ed448-goldilocks-plus.svg
+[crate-link]: https://crates.io/crates/ed448-goldilocks-plus
+[docs-image]: https://docs.rs/ed448-goldilocks-plus/badge.svg
+[docs-link]: https://docs.rs/ed448-goldilocks-plus/
+[license-image]: https://img.shields.io/badge/License-BSD%203--Clause-blue.svg
