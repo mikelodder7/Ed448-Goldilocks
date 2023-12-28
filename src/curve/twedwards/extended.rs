@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use crate::curve::edwards::ExtendedPoint as EdwardsExtendedPoint;
+use crate::curve::edwards::EdwardsPoint as EdwardsExtendedPoint;
 use crate::curve::twedwards::affine::AffinePoint;
 use crate::curve::twedwards::extensible::ExtensiblePoint;
 use crate::field::FieldElement;

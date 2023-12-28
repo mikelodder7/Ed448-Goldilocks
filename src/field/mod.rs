@@ -2,7 +2,7 @@ mod scalar;
 
 pub use scalar::{Scalar, ScalarBytes, WideScalarBytes};
 
-use crate::curve::edwards::ExtendedPoint;
+use crate::curve::edwards::EdwardsPoint;
 use crate::curve::twedwards::extended::ExtendedPoint as TwExtendedPoint;
 
 use elliptic_curve::{
@@ -20,7 +20,7 @@ use std::{
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 use zeroize::DefaultIsZeroes;
 
-pub const GOLDILOCKS_BASE_POINT: ExtendedPoint = ExtendedPoint {
+pub const GOLDILOCKS_BASE_POINT: EdwardsPoint = EdwardsPoint {
     X: FieldElement(ResidueType::new(&U448::from_be_hex("4f1970c66bed0ded221d15a622bf36da9e146570470f1767ea6de324a3d3a46412ae1af72ab66511433b80e18b00938e2626a82bc70cc05e"))),
     Y: FieldElement(ResidueType::new(&U448::from_be_hex("693f46716eb6bc248876203756c9c7624bea73736ca3984087789c1e05a0c2d73ad3ff1ce67c39c4fdbd132c4ed7c8ad9808795bf230fa14"))),
     Z: FieldElement::ONE,

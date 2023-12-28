@@ -357,7 +357,7 @@ impl PrimeField for Scalar {
     type Repr = ScalarBytes;
 
     fn from_repr(repr: Self::Repr) -> CtOption<Self> {
-        Self::from_canonical_bytes(repr)
+        Self::from_canonical_bytes(&repr)
     }
 
     fn to_repr(&self) -> Self::Repr {
@@ -397,11 +397,15 @@ impl serde::Serialize for Scalar {
         use serde::ser::SerializeTuple;
 
         let bytes = self.to_bytes_rfc_8032();
-        let mut tupler = s.serialize_tuple(bytes.len())?;
-        for i in &bytes {
-            tupler.serialize_element(i)?;
+        if s.is_human_readable() {
+            hex::encode(bytes).serialize(s)
+        } else {
+            let mut tupler = s.serialize_tuple(bytes.len())?;
+            for i in &bytes {
+                tupler.serialize_element(i)?;
+            }
+            tupler.end()
         }
-        tupler.end()
     }
 }
 
@@ -411,33 +415,46 @@ impl<'de> serde::Deserialize<'de> for Scalar {
     where
         D: serde::Deserializer<'de>,
     {
-        use serde::de::{SeqAccess, Visitor};
-
-        struct ScalarVisitor;
-
-        impl<'de> Visitor<'de> for ScalarVisitor {
-            type Value = Scalar;
-
-            fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                write!(f, "a sequence of 57 little endian bytes")
+        if d.is_human_readable() {
+            let hex_s = String::deserialize(d)?;
+            let bytes =
+                hex::decode(&hex_s).map_err(|_| serde::de::Error::custom("invalid hex string"))?;
+            if bytes.len() != 57 {
+                return Err(serde::de::Error::custom("invalid byte length"));
             }
+            let scalar_bytes = ScalarBytes::clone_from_slice(&bytes[..]);
+            Option::<Scalar>::from(Scalar::from_canonical_bytes(&scalar_bytes))
+                .ok_or_else(|| serde::de::Error::custom("scalar was not canonically encoded"))
+        } else {
+            use serde::de::{SeqAccess, Visitor};
 
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: SeqAccess<'de>,
-            {
-                let mut scalar = [0u8; 57];
-                for (i, v) in scalar.iter_mut().enumerate() {
-                    *v = seq
-                        .next_element()?
-                        .ok_or_else(|| serde::de::Error::invalid_length(i, &"expected 57 bytes"))?;
+            struct ScalarVisitor;
+
+            impl<'de> Visitor<'de> for ScalarVisitor {
+                type Value = Scalar;
+
+                fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+                    write!(f, "a sequence of 57 little endian bytes")
                 }
-                Scalar::from_canonical_bytes(scalar)
-                    .ok_or_else(|| serde::de::Error::custom("scalar was not canonically encoded"))
-            }
-        }
 
-        d.deserialize_tuple(57, ScalarVisitor)
+                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                where
+                    A: SeqAccess<'de>,
+                {
+                    let mut scalar = ScalarBytes::default();
+                    for (i, v) in scalar.iter_mut().enumerate() {
+                        *v = seq.next_element()?.ok_or_else(|| {
+                            serde::de::Error::invalid_length(i, &"expected 57 bytes")
+                        })?;
+                    }
+                    Option::<Scalar>::from(Scalar::from_canonical_bytes(&scalar)).ok_or_else(|| {
+                        serde::de::Error::custom("scalar was not canonically encoded")
+                    })
+                }
+            }
+
+            d.deserialize_tuple(57, ScalarVisitor)
+        }
     }
 }
 
@@ -670,7 +687,7 @@ impl Scalar {
     /// - `Some(s)`, where `s` is the `Scalar` corresponding to `bytes`,
     ///   if `bytes` is a canonical byte representation;
     /// - `None` if `bytes` is not a canonical byte representation.
-    pub fn from_canonical_bytes(bytes: ScalarBytes) -> CtOption<Scalar> {
+    pub fn from_canonical_bytes(bytes: &ScalarBytes) -> CtOption<Scalar> {
         // Check that the 10 high bits are not set
         let is_valid = is_zero(bytes[56]) | is_zero(bytes[55] >> 6);
         let bytes: [u8; 56] = core::array::from_fn(|i| bytes[i]);
@@ -950,19 +967,19 @@ mod test {
         // ff..ff should fail
         let mut bytes = ScalarBytes::clone_from_slice(&hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"));
         bytes.reverse();
-        let s = Scalar::from_canonical_bytes(bytes);
+        let s = Scalar::from_canonical_bytes(&bytes);
         assert!(<Choice as Into<bool>>::into(s.is_none()));
 
         // n should fail
         let mut bytes = ScalarBytes::clone_from_slice(&hex!("003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3"));
         bytes.reverse();
-        let s = Scalar::from_canonical_bytes(bytes);
+        let s = Scalar::from_canonical_bytes(&bytes);
         assert!(<Choice as Into<bool>>::into(s.is_none()));
 
         // n-1 should work
         let mut bytes = ScalarBytes::clone_from_slice(&hex!("003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f2"));
         bytes.reverse();
-        let s = Scalar::from_canonical_bytes(bytes);
+        let s = Scalar::from_canonical_bytes(&bytes);
         match Option::<Scalar>::from(s) {
             Some(s) => assert_eq!(s, Scalar::ZERO - Scalar::ONE),
             None => panic!("should not return None"),
@@ -995,7 +1012,7 @@ mod test {
         let s = Scalar::from_bytes_mod_order_wide(&bytes);
         let mut bytes = ScalarBytes::clone_from_slice(&hex!("002939f823b7292052bcb7e4d070af1a9cc14ba3c47c44ae17cf72c985bb24b6c520e319fb37a63e29800f160787ad1d2e11883fa931e7de81"));
         bytes.reverse();
-        let reduced = Scalar::from_canonical_bytes(bytes).unwrap();
+        let reduced = Scalar::from_canonical_bytes(&bytes).unwrap();
         assert_eq!(s, reduced);
     }
 
@@ -1007,5 +1024,25 @@ mod test {
         let x = Scalar::ZERO - Scalar::ONE;
         let candidate = x.to_bytes_rfc_8032();
         assert_eq!(&bytes[..], &candidate[..]);
+    }
+
+    #[test]
+    fn serde() {
+        let res = serde_json::to_string(&Scalar::TWO_INV);
+        assert!(res.is_ok());
+        let sj = res.unwrap();
+
+        let res = serde_json::from_str::<Scalar>(&sj);
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), Scalar::TWO_INV);
+
+        let res = serde_bare::to_vec(&Scalar::TWO_INV);
+        assert!(res.is_ok());
+        let sb = res.unwrap();
+        assert_eq!(sb.len(), 57);
+
+        let res = serde_bare::from_slice::<Scalar>(&sb);
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), Scalar::TWO_INV);
     }
 }

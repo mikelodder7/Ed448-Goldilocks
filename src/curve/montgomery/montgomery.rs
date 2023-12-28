@@ -11,7 +11,7 @@
 #![allow(non_snake_case)]
 
 // use crate::constants::A_PLUS_TWO_OVER_FOUR;
-use crate::curve::edwards::extended::ExtendedPoint;
+use crate::curve::edwards::extended::EdwardsPoint;
 use crate::field::{FieldElement, Scalar};
 use std::fmt;
 use std::ops::Mul;
@@ -103,7 +103,7 @@ impl Mul<&MontgomeryPoint> for &Scalar {
 }
 
 impl MontgomeryPoint {
-    pub fn to_edwards(&self, sign: u8) -> Option<ExtendedPoint> {
+    pub fn to_edwards(&self, sign: u8) -> Option<EdwardsPoint> {
         // We use the 4-isogeny to map to the Ed448.
         // This is different to Curve25519, where we use a birational map.
         todo!()

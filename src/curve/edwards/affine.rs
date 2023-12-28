@@ -1,4 +1,4 @@
-use crate::curve::edwards::ExtendedPoint;
+use crate::curve::edwards::EdwardsPoint;
 use crate::field::FieldElement;
 // Affine point on untwisted curve
 // XXX: This is only really needed for convenience in extended.rs . Will remove it sooner or later
@@ -13,8 +13,8 @@ impl AffinePoint {
         y: FieldElement::ONE,
     };
 
-    pub fn to_extended(&self) -> ExtendedPoint {
-        ExtendedPoint {
+    pub fn to_extended(&self) -> EdwardsPoint {
+        EdwardsPoint {
             X: self.x,
             Y: self.y,
             Z: FieldElement::ONE,

@@ -4,7 +4,7 @@ pub(crate) mod scalar_mul;
 pub(crate) mod twedwards;
 
 use crate::field::FieldElement;
-pub use edwards::ExtendedPoint;
+pub use edwards::EdwardsPoint;
 pub use montgomery::MontgomeryPoint;
 
 use crate::curve::edwards::affine::AffinePoint;

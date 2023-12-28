@@ -1,4 +1,5 @@
 use std::borrow::Borrow;
+use std::fmt::{Display, Formatter, LowerHex, Result as FmtResult, UpperHex};
 use std::iter::Sum;
 use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
@@ -27,34 +28,147 @@ pub const DEFAULT_ENCODE_TO_CURVE_SUITE: &[u8] = b"edwards448_XOF:SHAKE256_ELL2_
 
 #[allow(non_snake_case)]
 
-/// Represent points on the (untwisted) edwards curve using Extended Homogenous Projective Co-ordinates
-/// (x, y) -> (X/Z, Y/Z, Z, T)
-/// a = 1, d = -39081
-/// XXX: Make this more descriptive
-/// Should this be renamed to EdwardsPoint so that we are consistent with Dalek crypto? Necessary as ExtendedPoint is not regular lingo?
+/// Represents a point on the Compressed Twisted Edwards Curve
+/// in little endian format where the most significant bit is the sign bit
+/// and the remaining 448 bits represent the y-coordinate
 #[derive(Copy, Clone, Debug)]
-pub struct ExtendedPoint {
-    pub(crate) X: FieldElement,
-    pub(crate) Y: FieldElement,
-    pub(crate) Z: FieldElement,
-    pub(crate) T: FieldElement,
+pub struct CompressedEdwardsY(pub [u8; 57]);
+
+#[cfg(feature = "zeroize")]
+impl zeroize::Zeroize for CompressedEdwardsY {
+    fn zeroize(&mut self) {
+        self.0.zeroize()
+    }
 }
 
-impl ConditionallySelectable for ExtendedPoint {
+impl Display for CompressedEdwardsY {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        for b in &self.0[..] {
+            write!(f, "{:02x}", b)?;
+        }
+        Ok(())
+    }
+}
+
+impl LowerHex for CompressedEdwardsY {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        for b in &self.0[..] {
+            write!(f, "{:02x}", b)?;
+        }
+        Ok(())
+    }
+}
+
+impl UpperHex for CompressedEdwardsY {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        for b in &self.0[..] {
+            write!(f, "{:02X}", b)?;
+        }
+        Ok(())
+    }
+}
+
+impl Default for CompressedEdwardsY {
+    fn default() -> Self {
+        Self([0u8; 57])
+    }
+}
+
+impl ConditionallySelectable for CompressedEdwardsY {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
-        ExtendedPoint {
-            X: FieldElement::conditional_select(&a.X, &b.X, choice),
-            Y: FieldElement::conditional_select(&a.Y, &b.Y, choice),
-            Z: FieldElement::conditional_select(&a.Z, &b.Z, choice),
-            T: FieldElement::conditional_select(&a.T, &b.T, choice),
+        let mut bytes = [0u8; 57];
+        for i in 0..bytes.len() {
+            bytes[i] = u8::conditional_select(&a.0[i], &b.0[i], choice);
+        }
+        Self(bytes)
+    }
+}
+
+impl ConstantTimeEq for CompressedEdwardsY {
+    fn ct_eq(&self, other: &Self) -> Choice {
+        self.0.ct_eq(&other.0)
+    }
+}
+
+impl PartialEq for CompressedEdwardsY {
+    fn eq(&self, other: &CompressedEdwardsY) -> bool {
+        self.ct_eq(other).into()
+    }
+}
+
+impl Eq for CompressedEdwardsY {}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for CompressedEdwardsY {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let bytes = self.0;
+        if s.is_human_readable() {
+            hex::encode(bytes).serialize(s)
+        } else {
+            use serde::ser::SerializeTuple;
+            let mut seq = s.serialize_tuple(bytes.len())?;
+            for b in &bytes[..] {
+                seq.serialize_element(b)?;
+            }
+            seq.end()
         }
     }
 }
 
-pub struct CompressedEdwardsY(pub [u8; 57]);
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for CompressedEdwardsY {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        if d.is_human_readable() {
+            let s = String::deserialize(d)?;
+            let bytes = hex::decode(&s).map_err(serde::de::Error::custom)?;
+            if bytes.len() != 57 {
+                return Err(serde::de::Error::custom("invalid length"));
+            }
+            let mut buf = [0u8; 57];
+            buf.copy_from_slice(&bytes);
+            let pt = CompressedEdwardsY(buf);
+            let _ = Option::<EdwardsPoint>::from(pt.decompress())
+                .ok_or_else(|| serde::de::Error::custom("invalid point"))?;
+            Ok(pt)
+        } else {
+            use serde::de::{SeqAccess, Visitor};
+
+            struct CompressedEdwardsYVisitor;
+
+            impl<'de> Visitor<'de> for CompressedEdwardsYVisitor {
+                type Value = CompressedEdwardsY;
+
+                fn expecting(&self, f: &mut Formatter<'_>) -> FmtResult {
+                    write!(f, "a 57-byte sequence")
+                }
+
+                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                where
+                    A: SeqAccess<'de>,
+                {
+                    let mut buf = [0u8; 57];
+                    for (i, b) in buf.iter_mut().enumerate() {
+                        *b = seq
+                            .next_element()?
+                            .ok_or_else(|| serde::de::Error::invalid_length(i, &self))?;
+                    }
+                    let pt = CompressedEdwardsY(buf);
+                    let _ = Option::<EdwardsPoint>::from(pt.decompress())
+                        .ok_or_else(|| serde::de::Error::custom("invalid point"))?;
+                    Ok(pt)
+                }
+            }
+
+            d.deserialize_tuple(57, CompressedEdwardsYVisitor)
+        }
+    }
+}
 
 impl CompressedEdwardsY {
-    pub fn decompress(&self) -> CtOption<ExtendedPoint> {
+    pub fn decompress(&self) -> CtOption<EdwardsPoint> {
         // Safe to unwrap here as the underlying data structure is a slice
         let (sign, b) = self.0.split_last().unwrap();
 
@@ -79,7 +193,67 @@ impl CompressedEdwardsY {
     }
 }
 
-impl ConstantTimeEq for ExtendedPoint {
+/// Represent points on the (untwisted) edwards curve using Extended Homogenous Projective Co-ordinates
+/// (x, y) -> (X/Z, Y/Z, Z, T)
+/// a = 1, d = -39081
+/// XXX: Make this more descriptive
+/// Should this be renamed to EdwardsPoint so that we are consistent with Dalek crypto? Necessary as ExtendedPoint is not regular lingo?
+#[derive(Copy, Clone, Debug)]
+pub struct EdwardsPoint {
+    pub(crate) X: FieldElement,
+    pub(crate) Y: FieldElement,
+    pub(crate) Z: FieldElement,
+    pub(crate) T: FieldElement,
+}
+
+impl Default for EdwardsPoint {
+    fn default() -> Self {
+        Self::IDENTITY
+    }
+}
+
+impl Display for EdwardsPoint {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(
+            f,
+            "{{ X: {}, Y: {}, Z: {}, T: {} }}",
+            self.X, self.Y, self.Z, self.T
+        )
+    }
+}
+
+impl LowerHex for EdwardsPoint {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(
+            f,
+            "{{ X: {:x}, Y: {:x}, Z: {:x}, T: {:x} }}",
+            self.X, self.Y, self.Z, self.T
+        )
+    }
+}
+
+impl UpperHex for EdwardsPoint {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(
+            f,
+            "{{ X: {:X}, Y: {:X}, Z: {:X}, T: {:X} }}",
+            self.X, self.Y, self.Z, self.T
+        )
+    }
+}
+
+impl ConditionallySelectable for EdwardsPoint {
+    fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
+        EdwardsPoint {
+            X: FieldElement::conditional_select(&a.X, &b.X, choice),
+            Y: FieldElement::conditional_select(&a.Y, &b.Y, choice),
+            Z: FieldElement::conditional_select(&a.Z, &b.Z, choice),
+            T: FieldElement::conditional_select(&a.T, &b.T, choice),
+        }
+    }
+}
+
+impl ConstantTimeEq for EdwardsPoint {
     fn ct_eq(&self, other: &Self) -> Choice {
         let XZ = self.X * other.Z;
         let ZX = self.Z * other.X;
@@ -91,20 +265,15 @@ impl ConstantTimeEq for ExtendedPoint {
     }
 }
 
-impl PartialEq for ExtendedPoint {
-    fn eq(&self, other: &ExtendedPoint) -> bool {
+impl PartialEq for EdwardsPoint {
+    fn eq(&self, other: &EdwardsPoint) -> bool {
         self.ct_eq(other).into()
     }
 }
-impl Eq for ExtendedPoint {}
 
-impl Default for ExtendedPoint {
-    fn default() -> ExtendedPoint {
-        ExtendedPoint::IDENTITY
-    }
-}
+impl Eq for EdwardsPoint {}
 
-impl Group for ExtendedPoint {
+impl Group for EdwardsPoint {
     type Scalar = Scalar;
 
     fn random(mut rng: impl RngCore) -> Self {
@@ -130,7 +299,7 @@ impl Group for ExtendedPoint {
     }
 }
 
-impl GroupEncoding for ExtendedPoint {
+impl GroupEncoding for EdwardsPoint {
     type Repr = GenericArray<u8, U57>;
 
     fn from_bytes(bytes: &Self::Repr) -> CtOption<Self> {
@@ -150,7 +319,7 @@ impl GroupEncoding for ExtendedPoint {
     }
 }
 
-impl ExtendedPoint {
+impl EdwardsPoint {
     /// Identity point
     pub const IDENTITY: Self = Self {
         X: FieldElement::ZERO,
@@ -193,7 +362,7 @@ impl ExtendedPoint {
         let s_mod_four = scalar[0] & 3;
 
         // Compute all possible values of (scalar mod 4) * P
-        let zero_p = ExtendedPoint::IDENTITY;
+        let zero_p = EdwardsPoint::IDENTITY;
         let one_p = self.clone();
         let two_p = one_p.double();
         let three_p = two_p.add(self);
@@ -203,7 +372,7 @@ impl ExtendedPoint {
         // This should be cheaper than calling double_and_add or a scalar mul operation
         // as the number of possibilities are so small.
         // XXX: This claim has not been tested (although it sounds intuitive to me)
-        let mut result = ExtendedPoint::IDENTITY;
+        let mut result = EdwardsPoint::IDENTITY;
         result.conditional_assign(&zero_p, Choice::from((s_mod_four == 0) as u8));
         result.conditional_assign(&one_p, Choice::from((s_mod_four == 1) as u8));
         result.conditional_assign(&two_p, Choice::from((s_mod_four == 2) as u8));
@@ -234,7 +403,7 @@ impl ExtendedPoint {
 
     //https://iacr.org/archive/asiacrypt2008/53500329/53500329.pdf (3.1)
     // These formulas are unified, so for now we can use it for doubling. Will refactor later for speed
-    pub fn add(&self, other: &ExtendedPoint) -> Self {
+    pub fn add(&self, other: &EdwardsPoint) -> Self {
         let aXX = self.X * other.X; // aX1X2
         let dTT = FieldElement::EDWARDS_D * self.T * other.T; // dT1T2
         let ZZ = self.Z * other.Z; // Z1Z2
@@ -259,7 +428,7 @@ impl ExtendedPoint {
 
         let Z = { (ZZ - dTT) * (ZZ + dTT) };
 
-        ExtendedPoint { X, Y, Z, T }
+        EdwardsPoint { X, Y, Z, T }
     }
 
     // XXX: See comment on addition, the formula is unified, so this will do for now
@@ -326,7 +495,7 @@ impl ExtendedPoint {
     }
 
     pub fn negate(&self) -> Self {
-        ExtendedPoint {
+        EdwardsPoint {
             X: -self.X,
             Y: self.Y,
             Z: self.Z,
@@ -335,7 +504,7 @@ impl ExtendedPoint {
     }
 
     pub fn torque(&self) -> Self {
-        ExtendedPoint {
+        EdwardsPoint {
             X: -self.X,
             Y: -self.Y,
             Z: self.Z,
@@ -411,51 +580,51 @@ impl ExtendedPoint {
 // Addition and Subtraction
 // ------------------------------------------------------------------------
 
-impl<'a, 'b> Add<&'b ExtendedPoint> for &'a ExtendedPoint {
-    type Output = ExtendedPoint;
-    fn add(self, other: &'b ExtendedPoint) -> ExtendedPoint {
+impl<'a, 'b> Add<&'b EdwardsPoint> for &'a EdwardsPoint {
+    type Output = EdwardsPoint;
+    fn add(self, other: &'b EdwardsPoint) -> EdwardsPoint {
         self.add(other)
     }
 }
 
 define_add_variants!(
-    LHS = ExtendedPoint,
-    RHS = ExtendedPoint,
-    Output = ExtendedPoint
+    LHS = EdwardsPoint,
+    RHS = EdwardsPoint,
+    Output = EdwardsPoint
 );
 
-impl<'b> AddAssign<&'b ExtendedPoint> for ExtendedPoint {
-    fn add_assign(&mut self, _rhs: &'b ExtendedPoint) {
-        *self = (self as &ExtendedPoint) + _rhs;
+impl<'b> AddAssign<&'b EdwardsPoint> for EdwardsPoint {
+    fn add_assign(&mut self, _rhs: &'b EdwardsPoint) {
+        *self = (self as &EdwardsPoint) + _rhs;
     }
 }
 
-define_add_assign_variants!(LHS = ExtendedPoint, RHS = ExtendedPoint);
+define_add_assign_variants!(LHS = EdwardsPoint, RHS = EdwardsPoint);
 
-impl<'a, 'b> Sub<&'b ExtendedPoint> for &'a ExtendedPoint {
-    type Output = ExtendedPoint;
-    fn sub(self, other: &'b ExtendedPoint) -> ExtendedPoint {
+impl<'a, 'b> Sub<&'b EdwardsPoint> for &'a EdwardsPoint {
+    type Output = EdwardsPoint;
+    fn sub(self, other: &'b EdwardsPoint) -> EdwardsPoint {
         self.add(&other.negate())
     }
 }
 
 define_sub_variants!(
-    LHS = ExtendedPoint,
-    RHS = ExtendedPoint,
-    Output = ExtendedPoint
+    LHS = EdwardsPoint,
+    RHS = EdwardsPoint,
+    Output = EdwardsPoint
 );
 
-impl<'b> SubAssign<&'b ExtendedPoint> for ExtendedPoint {
-    fn sub_assign(&mut self, _rhs: &'b ExtendedPoint) {
-        *self = (self as &ExtendedPoint) - _rhs;
+impl<'b> SubAssign<&'b EdwardsPoint> for EdwardsPoint {
+    fn sub_assign(&mut self, _rhs: &'b EdwardsPoint) {
+        *self = (self as &EdwardsPoint) - _rhs;
     }
 }
 
-define_sub_assign_variants!(LHS = ExtendedPoint, RHS = ExtendedPoint);
+define_sub_assign_variants!(LHS = EdwardsPoint, RHS = EdwardsPoint);
 
-impl<T> Sum<T> for ExtendedPoint
+impl<T> Sum<T> for EdwardsPoint
 where
-    T: Borrow<ExtendedPoint>,
+    T: Borrow<EdwardsPoint>,
 {
     fn sum<I>(iter: I) -> Self
     where
@@ -469,18 +638,18 @@ where
 // Negation
 // ------------------------------------------------------------------------
 
-impl<'a> Neg for &'a ExtendedPoint {
-    type Output = ExtendedPoint;
+impl<'a> Neg for &'a EdwardsPoint {
+    type Output = EdwardsPoint;
 
-    fn neg(self) -> ExtendedPoint {
+    fn neg(self) -> EdwardsPoint {
         self.negate()
     }
 }
 
-impl Neg for ExtendedPoint {
-    type Output = ExtendedPoint;
+impl Neg for EdwardsPoint {
+    type Output = EdwardsPoint;
 
-    fn neg(self) -> ExtendedPoint {
+    fn neg(self) -> EdwardsPoint {
         -&self
     }
 }
@@ -489,34 +658,56 @@ impl Neg for ExtendedPoint {
 // Scalar multiplication
 // ------------------------------------------------------------------------
 
-impl<'b> MulAssign<&'b Scalar> for ExtendedPoint {
+impl<'b> MulAssign<&'b Scalar> for EdwardsPoint {
     fn mul_assign(&mut self, scalar: &'b Scalar) {
-        let result = (self as &ExtendedPoint) * scalar;
+        let result = (self as &EdwardsPoint) * scalar;
         *self = result;
     }
 }
 
-define_mul_assign_variants!(LHS = ExtendedPoint, RHS = Scalar);
+define_mul_assign_variants!(LHS = EdwardsPoint, RHS = Scalar);
 
-define_mul_variants!(LHS = ExtendedPoint, RHS = Scalar, Output = ExtendedPoint);
-define_mul_variants!(LHS = Scalar, RHS = ExtendedPoint, Output = ExtendedPoint);
+define_mul_variants!(LHS = EdwardsPoint, RHS = Scalar, Output = EdwardsPoint);
+define_mul_variants!(LHS = Scalar, RHS = EdwardsPoint, Output = EdwardsPoint);
 
-impl<'a, 'b> Mul<&'b Scalar> for &'a ExtendedPoint {
-    type Output = ExtendedPoint;
+impl<'a, 'b> Mul<&'b Scalar> for &'a EdwardsPoint {
+    type Output = EdwardsPoint;
     /// Scalar multiplication: compute `scalar * self`.
-    fn mul(self, scalar: &'b Scalar) -> ExtendedPoint {
+    fn mul(self, scalar: &'b Scalar) -> EdwardsPoint {
         self.scalar_mul(scalar)
     }
 }
 
-impl<'a, 'b> Mul<&'b ExtendedPoint> for &'a Scalar {
-    type Output = ExtendedPoint;
+impl<'a, 'b> Mul<&'b EdwardsPoint> for &'a Scalar {
+    type Output = EdwardsPoint;
 
     /// Scalar multiplication: compute `scalar * self`.
-    fn mul(self, point: &'b ExtendedPoint) -> ExtendedPoint {
+    fn mul(self, point: &'b EdwardsPoint) -> EdwardsPoint {
         point * self
     }
 }
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for EdwardsPoint {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        self.compress().serialize(s)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for EdwardsPoint {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let compressed = CompressedEdwardsY::deserialize(d)?;
+        Option::<EdwardsPoint>::from(compressed.decompress())
+            .ok_or_else(|| serde::de::Error::custom("invalid point"))
+    }
+}
+
+#[cfg(feature = "zeroize")]
+impl zeroize::DefaultIsZeroes for EdwardsPoint {}
 
 #[cfg(test)]
 mod tests {
@@ -612,8 +803,8 @@ mod tests {
     }
     #[test]
     fn test_is_torsion_free() {
-        assert!(ExtendedPoint::GENERATOR.is_torsion_free());
-        assert!(ExtendedPoint::IDENTITY.is_torsion_free());
+        assert!(EdwardsPoint::GENERATOR.is_torsion_free());
+        assert!(EdwardsPoint::IDENTITY.is_torsion_free());
 
         let bytes = hex!("13b6714c7a5f53101bbec88f2f17cd30f42e37fae363a5474efb4197ed6005df5861ae178a0c2c16ad378b7befed0d0904b7ced35e9f674180");
         let compressed = CompressedEdwardsY(bytes);
@@ -633,7 +824,7 @@ mod tests {
         ];
 
         for (msg, x, y) in MSGS {
-            let p = ExtendedPoint::hash::<ExpandMsgXof<sha3::Shake256>>(msg, DST);
+            let p = EdwardsPoint::hash::<ExpandMsgXof<sha3::Shake256>>(msg, DST);
             assert!(p.is_on_curve());
             let p = p.to_affine();
             let mut xx = [0u8; 56];
@@ -659,7 +850,7 @@ mod tests {
         ];
 
         for (msg, x, y) in MSGS {
-            let p = ExtendedPoint::encode::<ExpandMsgXof<sha3::Shake256>>(msg, DST);
+            let p = EdwardsPoint::encode::<ExpandMsgXof<sha3::Shake256>>(msg, DST);
             assert!(p.is_on_curve());
             let p = p.to_affine();
             let mut xx = [0u8; 56];
