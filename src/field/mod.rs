@@ -37,12 +37,6 @@ pub const TWISTED_EDWARDS_BASE_POINT: TwExtendedPoint = TwExtendedPoint {
 impl_modulus!(MODULUS, U448, "fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
 type ResidueType = Residue<MODULUS, { MODULUS::LIMBS }>;
 
-// #[cfg(feature = "u32_backend")]
-// pub type FieldElement = crate::field::u32::FieldElement28;
-//
-// #[cfg(feature = "fiat_u64_backend")]
-// pub type FieldElement = crate::field::fiat_u64::FieldElement56;
-
 #[derive(Clone, Copy, Default)]
 pub(crate) struct FieldElement(pub(crate) ResidueType);
 

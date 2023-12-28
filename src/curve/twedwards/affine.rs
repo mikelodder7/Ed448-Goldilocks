@@ -17,18 +17,17 @@ pub struct AffinePoint {
 
 impl Default for AffinePoint {
     fn default() -> AffinePoint {
-        AffinePoint::identity()
+        AffinePoint::IDENTITY
     }
 }
 
 impl AffinePoint {
     /// Identity element
-    pub(crate) fn identity() -> AffinePoint {
-        AffinePoint {
-            x: FieldElement::ZERO,
-            y: FieldElement::ONE,
-        }
-    }
+    pub(crate) const IDENTITY: AffinePoint = AffinePoint {
+        x: FieldElement::ZERO,
+        y: FieldElement::ONE,
+    };
+
     /// Checks if the AffinePoint is on the TwistedEdwards curve
     fn is_on_curve(&self) -> bool {
         let xx = self.x.square();
@@ -139,6 +138,6 @@ mod tests {
 
         let neg_a = a.negate();
         let got = neg_a.add(&a);
-        assert!(got == AffinePoint::identity());
+        assert!(got == AffinePoint::IDENTITY);
     }
 }
