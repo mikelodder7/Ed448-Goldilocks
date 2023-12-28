@@ -1,14 +1,39 @@
 use crate::curve::edwards::EdwardsPoint;
 use crate::field::FieldElement;
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
 // Affine point on untwisted curve
-// XXX: This is only really needed for convenience in extended.rs . Will remove it sooner or later
+#[derive(Copy, Clone, Debug)]
 pub struct AffinePoint {
     pub(crate) x: FieldElement,
     pub(crate) y: FieldElement,
 }
 
+impl ConstantTimeEq for AffinePoint {
+    fn ct_eq(&self, other: &Self) -> Choice {
+        self.x.ct_eq(&other.x) & self.y.ct_eq(&other.y)
+    }
+}
+
+impl ConditionallySelectable for AffinePoint {
+    fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
+        Self {
+            x: FieldElement::conditional_select(&a.x, &b.x, choice),
+            y: FieldElement::conditional_select(&a.y, &b.y, choice),
+        }
+    }
+}
+
+impl PartialEq for AffinePoint {
+    fn eq(&self, other: &Self) -> bool {
+        self.ct_eq(other).into()
+    }
+}
+
+impl Eq for AffinePoint {}
+
 impl AffinePoint {
+    /// The identity point
     pub const IDENTITY: AffinePoint = AffinePoint {
         x: FieldElement::ZERO,
         y: FieldElement::ONE,
@@ -45,12 +70,23 @@ impl AffinePoint {
         }
     }
 
-    pub fn to_extended(&self) -> EdwardsPoint {
+    /// Convert to edwards extended point
+    pub fn to_edwards(&self) -> EdwardsPoint {
         EdwardsPoint {
             X: self.x,
             Y: self.y,
             Z: FieldElement::ONE,
             T: self.x * self.y,
         }
+    }
+
+    /// Return the X coordinate
+    pub fn x(&self) -> [u8; 56] {
+        self.x.to_bytes()
+    }
+
+    /// Return the Y coordinate
+    pub fn y(&self) -> [u8; 56] {
+        self.y.to_bytes()
     }
 }

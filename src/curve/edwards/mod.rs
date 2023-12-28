@@ -11,6 +11,7 @@
 /// If this is a problem, one can use a different isogeny strategy (Decaf/Ristretto)
 pub(crate) mod affine;
 pub(crate) mod extended;
+pub use affine::AffinePoint;
 pub use extended::{CompressedEdwardsY, EdwardsPoint};
 
 // XXX: Instead of ExtendedPoint in the Goldilocks Curve, should we call it EdwardsPoint like Dalek.

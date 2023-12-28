@@ -4,7 +4,7 @@ use crate::constants::DECAF_BASEPOINT;
 use crate::curve::twedwards::extended::ExtendedPoint;
 use crate::field::FieldElement;
 use std::fmt::{Display, Formatter, Result as FmtResult};
-use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq};
+use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption};
 
 #[derive(Copy, Clone, Debug)]
 pub struct DecafPoint(pub(crate) ExtendedPoint);
@@ -119,18 +119,18 @@ impl CompressedDecaf {
 
     // XXX: We allow the identity point
     /// XXX: Clean this up to be more descriptive of what is happening
-    pub fn decompress(&self) -> Option<DecafPoint> {
+    pub fn decompress(&self) -> CtOption<DecafPoint> {
         let s = FieldElement::from_bytes(&self.0);
         //XX: Check for canonical encoding and sign,
         // Copied this check from Dalek: The From_bytes function does not throw an error, if the bytes exceed the prime.
         // However, to_bytes reduces the Field element before serialising
         // So we can use to_bytes -> from_bytes and if the representations are the same, then the element was already in reduced form
         let s_bytes_check = s.to_bytes();
-        let s_encoding_is_canonical = &s_bytes_check[..].ct_eq(&self.0);
-        // let s_is_negative = s.is_negative();
-        if s_encoding_is_canonical.unwrap_u8() == 0u8 || s.is_negative().unwrap_u8() == 1u8 {
-            return None;
-        }
+        let s_encoding_is_canonical = s_bytes_check[..].ct_eq(&self.0);
+        let s_is_negative = s.is_negative();
+        // if s_encoding_is_canonical.unwrap_u8() == 0u8 || s.is_negative().unwrap_u8() == 1u8 {
+        //     return None;
+        // }
 
         let ss = s.square();
         let u1 = FieldElement::ONE - ss;
@@ -140,9 +140,6 @@ impl CompressedDecaf {
         let v = ss * (FieldElement::NEG_FOUR_TIMES_TWISTED_D) + u1_sqr; // XXX: constantify please
 
         let (I, ok) = (v * u1_sqr).inverse_square_root();
-        if ok.unwrap_u8() == 0 {
-            return None;
-        }
 
         let Dx = I * u1;
         let Dxs = (s + s) * Dx;
@@ -154,8 +151,12 @@ impl CompressedDecaf {
         let Y = Dx * u2;
         let Z = FieldElement::ONE;
         let T = X * Y;
+        let pt = ExtendedPoint { X, Y, Z, T };
 
-        Some(DecafPoint(ExtendedPoint { X: X, Y, Z, T }))
+        CtOption::new(
+            DecafPoint(pt),
+            ok & pt.is_on_curve() & s_encoding_is_canonical & !s_is_negative,
+        )
     }
 
     pub fn as_bytes(&self) -> &[u8] {
@@ -300,6 +301,17 @@ mod test {
         for compressed_point in compressed.iter() {
             assert_eq!(&point.compress(), compressed_point);
             point = &point + &generator;
+            let decompressed_point = compressed_point.decompress();
+            assert_eq!(decompressed_point.is_some().unwrap_u8(), 1u8);
         }
+    }
+
+    #[test]
+    fn test_invalid_point() {
+        // Test that the identity point is not on the curve
+        let all_ones = CompressedDecaf([1u8; 56]);
+        assert_eq!(all_ones.decompress().is_none().unwrap_u8(), 1u8);
+        let all_twos = CompressedDecaf([2u8; 56]);
+        assert_eq!(all_twos.decompress().is_none().unwrap_u8(), 1u8);
     }
 }

@@ -97,6 +97,18 @@ impl PartialEq for CompressedEdwardsY {
 
 impl Eq for CompressedEdwardsY {}
 
+impl AsRef<[u8]> for CompressedEdwardsY {
+    fn as_ref(&self) -> &[u8] {
+        &self.0[..]
+    }
+}
+
+impl AsRef<[u8; 57]> for CompressedEdwardsY {
+    fn as_ref(&self) -> &[u8; 57] {
+        &self.0
+    }
+}
+
 #[cfg(feature = "serde")]
 impl serde::Serialize for CompressedEdwardsY {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
@@ -167,6 +179,10 @@ impl<'de> serde::Deserialize<'de> for CompressedEdwardsY {
 }
 
 impl CompressedEdwardsY {
+    /// Attempt to decompress to an `EdwardsPoint`.
+    ///
+    /// Returns `None` if the input is not the \\(y\\)-coordinate of a
+    /// curve point.`
     pub fn decompress(&self) -> CtOption<EdwardsPoint> {
         // Safe to unwrap here as the underlying data structure is a slice
         let (sign, b) = self.0.split_last().unwrap();
@@ -188,9 +204,19 @@ impl CompressedEdwardsY {
         let is_negative = x.is_negative();
         x.conditional_negate(compressed_sign_bit ^ is_negative);
 
-        let pt = AffinePoint { x, y }.to_extended();
+        let pt = AffinePoint { x, y }.to_edwards();
 
         CtOption::new(pt, is_res & pt.is_on_curve())
+    }
+
+    /// View this `CompressedEdwardsY` as an array of bytes.
+    pub const fn as_bytes(&self) -> &[u8; 57] {
+        &self.0
+    }
+
+    /// Copy this `CompressedEdwardsY` to an array of bytes.
+    pub const fn to_bytes(&self) -> [u8; 57] {
+        self.0
     }
 }
 
@@ -317,6 +343,56 @@ impl GroupEncoding for EdwardsPoint {
 
     fn to_bytes(&self) -> Self::Repr {
         Self::Repr::clone_from_slice(&self.compress().0)
+    }
+}
+
+impl From<EdwardsPoint> for Vec<u8> {
+    fn from(value: EdwardsPoint) -> Self {
+        Self::from(&value)
+    }
+}
+
+impl From<&EdwardsPoint> for Vec<u8> {
+    fn from(value: &EdwardsPoint) -> Self {
+        value.compress().0.to_vec()
+    }
+}
+
+impl TryFrom<Vec<u8>> for EdwardsPoint {
+    type Error = String;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(&value)
+    }
+}
+
+impl TryFrom<&Vec<u8>> for EdwardsPoint {
+    type Error = String;
+
+    fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_slice())
+    }
+}
+
+impl TryFrom<&[u8]> for EdwardsPoint {
+    type Error = String;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if value.len() != 57 {
+            return Err("Invalid length".to_string());
+        }
+        let mut bytes = [0u8; 57];
+        bytes.copy_from_slice(value);
+        Option::<Self>::from(CompressedEdwardsY(bytes).decompress())
+            .ok_or_else(|| "Invalid point".to_string())
+    }
+}
+
+impl TryFrom<Box<[u8]>> for EdwardsPoint {
+    type Error = String;
+
+    fn try_from(value: Box<[u8]>) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_ref())
     }
 }
 
@@ -549,7 +625,7 @@ impl EdwardsPoint {
         q0 = q0.isogeny();
         q1 = q1.isogeny();
 
-        (q0.to_extended() + q1.to_extended()).scalar_mul(&Scalar::FOUR)
+        (q0.to_edwards() + q1.to_edwards()).scalar_mul(&Scalar::FOUR)
     }
 
     /// Encode using the default domain separation tag and hash function
@@ -571,7 +647,7 @@ impl EdwardsPoint {
         let mut q0 = u0.map_to_curve_elligator2();
         q0 = q0.isogeny();
 
-        q0.to_extended().scalar_mul(&Scalar::FOUR)
+        q0.to_edwards().scalar_mul(&Scalar::FOUR)
     }
 }
 
@@ -761,7 +837,7 @@ mod tests {
         let x = hex_to_field("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa955555555555555555555555555555555555555555555555555555555");
         let y = hex_to_field("ae05e9634ad7048db359d6205086c2b0036ed7a035884dd7b7e36d728ad8c4b80d6565833a2a3098bbbcb2bed1cda06bdaeafbcdea9386ed");
         let gen = AffinePoint { x, y }.to_extended();
-        assert!(gen.is_on_curve());
+        assert_eq!(gen.is_on_curve().unwrap_u8(), 1u8);
     }
     #[test]
     fn test_compress_decompress() {
@@ -824,7 +900,7 @@ mod tests {
 
         for (msg, x, y) in MSGS {
             let p = EdwardsPoint::hash::<ExpandMsgXof<sha3::Shake256>>(msg, DST);
-            assert!(p.is_on_curve());
+            assert_eq!(p.is_on_curve().unwrap_u8(), 1u8);
             let p = p.to_affine();
             let mut xx = [0u8; 56];
             xx.copy_from_slice(&x[..]);
@@ -850,7 +926,7 @@ mod tests {
 
         for (msg, x, y) in MSGS {
             let p = EdwardsPoint::encode::<ExpandMsgXof<sha3::Shake256>>(msg, DST);
-            assert!(p.is_on_curve());
+            assert_eq!(p.is_on_curve().unwrap_u8(), 1u8);
             let p = p.to_affine();
             let mut xx = [0u8; 56];
             xx.copy_from_slice(&x[..]);

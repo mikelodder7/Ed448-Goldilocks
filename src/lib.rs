@@ -26,7 +26,9 @@ pub(crate) mod ristretto;
 
 pub(crate) use field::{GOLDILOCKS_BASE_POINT, TWISTED_EDWARDS_BASE_POINT};
 
-pub use curve::{CompressedEdwardsY, EdwardsPoint, MontgomeryPoint, ProjectiveMontgomeryPoint};
+pub use curve::{
+    AffinePoint, CompressedEdwardsY, EdwardsPoint, MontgomeryPoint, ProjectiveMontgomeryPoint,
+};
 pub use decaf::{CompressedDecaf, DecafPoint};
 pub use field::{Scalar, ScalarBytes, WideScalarBytes};
 pub use ristretto::{CompressedRistretto, RistrettoPoint};

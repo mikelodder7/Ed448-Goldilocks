@@ -136,7 +136,7 @@ impl ExtendedPoint {
     }
 
     /// Checks if the point is on the curve
-    pub(crate) fn is_on_curve(&self) -> bool {
+    pub(crate) fn is_on_curve(&self) -> Choice {
         let XY = self.X * self.Y;
         let ZT = self.Z * self.T;
 
@@ -149,7 +149,7 @@ impl ExtendedPoint {
         let lhs = YY - XX;
         let rhs = ZZ + TT * FieldElement::TWISTED_D;
 
-        (XY == ZT) && (lhs == rhs)
+        XY.ct_eq(&ZT) & lhs.ct_eq(&rhs)
     }
     /// Negates a point
     pub fn negate(&self) -> ExtendedPoint {
@@ -188,14 +188,14 @@ mod tests {
         let y = hex_to_field("ae05e9634ad7048db359d6205086c2b0036ed7a035884dd7b7e36d728ad8c4b80d6565833a2a3098bbbcb2bed1cda06bdaeafbcdea9386ed");
         let a = AffinePoint { x, y }.to_extended();
         let twist_a = a.to_untwisted().to_twisted();
-        assert!(twist_a == a.double().double())
+        assert_eq!(twist_a, a.double().double())
     }
 
     #[test]
     fn test_is_on_curve() {
         // The twisted edwards basepoint should be on the curve
         // twisted edwards curve
-        assert!(TWISTED_EDWARDS_BASE_POINT.is_on_curve());
+        assert_eq!(TWISTED_EDWARDS_BASE_POINT.is_on_curve().unwrap_u8(), 1u8);
 
         // The goldilocks basepoint should not be
         let invalid_point = ExtendedPoint {
@@ -204,7 +204,7 @@ mod tests {
             Z: GOLDILOCKS_BASE_POINT.Z,
             T: GOLDILOCKS_BASE_POINT.T,
         };
-        assert!(!invalid_point.is_on_curve());
+        assert_eq!(invalid_point.is_on_curve().unwrap_u8(), 0u8);
     }
 
     #[test]
