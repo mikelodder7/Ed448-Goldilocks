@@ -3,5 +3,5 @@ pub mod montgomery;
 pub(crate) mod scalar_mul;
 pub(crate) mod twedwards;
 
-pub use edwards::EdwardsPoint;
-pub use montgomery::MontgomeryPoint;
+pub use edwards::{CompressedEdwardsY, EdwardsPoint};
+pub use montgomery::{MontgomeryPoint, ProjectiveMontgomeryPoint};

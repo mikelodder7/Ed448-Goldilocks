@@ -1,3 +1,9 @@
+//! This crate provides a pure Rust implementation of Curve448, Edwards, Decaf, and Ristretto.
+//! It is intended to be portable, fast, and safe.
+//!
+//! # Usage
+//! ```
+//! ```
 // XXX: Change this to deny later on
 #![warn(unused_attributes, unused_imports, unused_mut, unused_must_use)]
 #![allow(non_snake_case)]
@@ -6,17 +12,21 @@
 #[macro_use]
 pub(crate) mod macros;
 
-use elliptic_curve::generic_array::{typenum::U56, GenericArray};
+pub use elliptic_curve;
+pub use rand_core;
+pub use sha3;
+pub use subtle;
 
 // As usual, we will use this file to carefully define the API/ what we expose to the user
-pub mod constants;
-pub mod curve;
-pub mod decaf;
+pub(crate) mod constants;
+pub(crate) mod curve;
+pub(crate) mod decaf;
 pub(crate) mod field;
-pub mod ristretto;
+pub(crate) mod ristretto;
 
-pub type FieldBytes = GenericArray<u8, U56>;
+pub(crate) use field::{GOLDILOCKS_BASE_POINT, TWISTED_EDWARDS_BASE_POINT};
 
-pub use field::{
-    Scalar, ScalarBytes, WideScalarBytes, GOLDILOCKS_BASE_POINT, TWISTED_EDWARDS_BASE_POINT,
-};
+pub use curve::{CompressedEdwardsY, EdwardsPoint, MontgomeryPoint, ProjectiveMontgomeryPoint};
+pub use decaf::{CompressedDecaf, DecafPoint};
+pub use field::{Scalar, ScalarBytes, WideScalarBytes};
+pub use ristretto::{CompressedRistretto, RistrettoPoint};

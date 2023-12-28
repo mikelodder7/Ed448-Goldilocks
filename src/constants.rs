@@ -1,12 +1,6 @@
 use crate::*;
 use crate::{decaf::DecafPoint, Scalar};
 
-// #[cfg(feature = "u32_backend")]
-// pub use crate::field::u32::constants::*;
-//
-// #[cfg(feature = "fiat_u64_backend")]
-// pub use crate::field::fiat_u64::constants::*;
-
 pub const DECAF_BASEPOINT: DecafPoint = DecafPoint(curve::twedwards::extended::ExtendedPoint {
     X: TWISTED_EDWARDS_BASE_POINT.X,
     Y: TWISTED_EDWARDS_BASE_POINT.Y,

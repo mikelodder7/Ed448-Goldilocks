@@ -1,4 +1,5 @@
 #![allow(non_snake_case)]
+#![allow(dead_code)]
 
 use crate::curve::edwards::EdwardsPoint as EdwardsExtendedPoint;
 use crate::curve::twedwards::affine::AffinePoint;

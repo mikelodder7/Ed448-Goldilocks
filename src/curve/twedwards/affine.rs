@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::curve::twedwards::{extended::ExtendedPoint, extensible::ExtensiblePoint};
 use crate::field::FieldElement;
 use subtle::{Choice, ConditionallySelectable};
@@ -66,14 +67,14 @@ impl AffinePoint {
             T2: self.y,
         }
     }
-    /// Converts an AffinePoint to an AffineNielsPoint
-    pub(crate) fn to_affine_niels(&self) -> AffineNielsPoint {
-        AffineNielsPoint {
-            y_plus_x: self.y + self.x,
-            y_minus_x: self.y - self.x,
-            td: self.x * self.y * FieldElement::TWISTED_D,
-        }
-    }
+    // /// Converts an AffinePoint to an AffineNielsPoint
+    // pub(crate) fn to_affine_niels(&self) -> AffineNielsPoint {
+    //     AffineNielsPoint {
+    //         y_plus_x: self.y + self.x,
+    //         y_minus_x: self.y - self.x,
+    //         td: self.x * self.y * FieldElement::TWISTED_D,
+    //     }
+    // }
     /// Converts an An AffinePoint to an ExtendedPoint
     pub(crate) fn to_extended(&self) -> ExtendedPoint {
         self.to_extensible().to_extended()

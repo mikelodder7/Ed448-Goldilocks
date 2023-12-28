@@ -103,7 +103,7 @@ impl Mul<&MontgomeryPoint> for &Scalar {
 }
 
 impl MontgomeryPoint {
-    pub fn to_edwards(&self, sign: u8) -> Option<EdwardsPoint> {
+    pub fn to_edwards(&self, _sign: u8) -> Option<EdwardsPoint> {
         // We use the 4-isogeny to map to the Ed448.
         // This is different to Curve25519, where we use a birational map.
         todo!()

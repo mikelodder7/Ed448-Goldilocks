@@ -188,7 +188,9 @@ impl CompressedEdwardsY {
         let is_negative = x.is_negative();
         x.conditional_negate(compressed_sign_bit ^ is_negative);
 
-        CtOption::new(AffinePoint { x, y }.to_extended(), is_res)
+        let pt = AffinePoint { x, y }.to_extended();
+
+        CtOption::new(pt, is_res & pt.is_on_curve())
     }
 }
 
@@ -436,7 +438,7 @@ impl EdwardsPoint {
         self.add(&self)
     }
 
-    pub(crate) fn is_on_curve(&self) -> bool {
+    pub(crate) fn is_on_curve(&self) -> Choice {
         let XY = self.X * self.Y;
         let ZT = self.Z * self.T;
 
@@ -449,7 +451,7 @@ impl EdwardsPoint {
         let lhs = YY + XX;
         let rhs = ZZ + TT * FieldElement::EDWARDS_D;
 
-        (XY == ZT) && (lhs == rhs)
+        XY.ct_eq(&ZT) & lhs.ct_eq(&rhs)
     }
 
     pub fn to_affine(&self) -> AffinePoint {
@@ -489,7 +491,7 @@ impl EdwardsPoint {
         }
     }
 
-    pub fn to_twisted(&self) -> TwistedExtendedPoint {
+    pub(crate) fn to_twisted(&self) -> TwistedExtendedPoint {
         self.edwards_isogeny(FieldElement::ONE)
     }
 

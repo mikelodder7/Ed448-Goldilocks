@@ -1,22 +1,21 @@
 [package]
-name = "ed448-goldilocks-ml"
+name = "ed448-goldilocks-plus"
 version = "0.10.0"
 authors = ["Kevaundray Wedderburn <kevtheappdev@gmail.com>", "Michael Lodder <redmike7@gmail.com>"]
 edition = "2021"
 readme = "README.md"
 license = "BSD-3-Clause"
-repository = "https://github.com/crate-crypto/Ed448-Goldilocks"
-homepage = "https://github.com/crate-crypto/Ed448-Goldilocks"
-documentation = "https://github.com/crate-crypto/Ed448-Goldilocks"
+repository = "https://github.com/mikelodder7/Ed448-Goldilocks"
+homepage = "https://github.com/mikelodder7/Ed448-Goldilocks"
+documentation = "https://github.com/mikelodder7/Ed448-Goldilocks"
 categories = ["cryptography"]
 keywords = ["cryptography", "crypto", "decaf", "ed448", "ed448-goldilocks"]
 description = "A pure-Rust implementation of Ed448 and Curve448 and Decaf"
 exclude = [".gitignore", ".github/*"]
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 elliptic-curve = { version = "0.13", features = ["hash2curve"] }
-hex = "0.4"
+hex = { version = "0.4", optional = true }
 subtle = "2.5"
 rand_core = "0.6"
 serde = { version = "1.0", optional = true }
@@ -30,6 +29,7 @@ optional = true
 
 [features]
 default = ["dep:zeroize", "serde"]
+serde = ["dep:serde", "hex"]
 
 [dev-dependencies]
 hex-literal = "0.4"

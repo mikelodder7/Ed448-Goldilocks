@@ -3,52 +3,55 @@
 use crate::constants::DECAF_BASEPOINT;
 use crate::curve::twedwards::extended::ExtendedPoint;
 use crate::field::FieldElement;
-use std::fmt;
-use subtle::{Choice, ConditionallyNegatable, ConstantTimeEq};
+use std::fmt::{Display, Formatter, Result as FmtResult};
+use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq};
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct DecafPoint(pub(crate) ExtendedPoint);
 
-#[derive(Copy, Clone)]
-pub struct CompressedDecaf(pub [u8; 56]);
-
-impl fmt::Debug for CompressedDecaf {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        self.0[..].fmt(formatter)
+impl Display for DecafPoint {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(
+            f,
+            "{{ X: {}, Y: {}, Z: {}, T: {} }}",
+            self.0.X, self.0.Y, self.0.Z, self.0.T
+        )
     }
 }
 
-impl ConstantTimeEq for CompressedDecaf {
-    fn ct_eq(&self, other: &CompressedDecaf) -> Choice {
-        self.as_bytes().ct_eq(other.as_bytes())
+impl ConstantTimeEq for DecafPoint {
+    fn ct_eq(&self, other: &DecafPoint) -> Choice {
+        (self.0.X * other.0.Y).ct_eq(&(self.0.Y * other.0.X))
     }
 }
 
-impl PartialEq for CompressedDecaf {
-    fn eq(&self, other: &CompressedDecaf) -> bool {
+impl ConditionallySelectable for DecafPoint {
+    fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
+        DecafPoint(ExtendedPoint {
+            X: FieldElement::conditional_select(&a.0.X, &b.0.X, choice),
+            Y: FieldElement::conditional_select(&a.0.Y, &b.0.Y, choice),
+            Z: FieldElement::conditional_select(&a.0.Z, &b.0.Z, choice),
+            T: FieldElement::conditional_select(&a.0.T, &b.0.T, choice),
+        })
+    }
+}
+
+impl PartialEq for DecafPoint {
+    fn eq(&self, other: &DecafPoint) -> bool {
         self.ct_eq(other).into()
     }
 }
-impl Eq for CompressedDecaf {}
 
-impl CompressedDecaf {
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.0
-    }
-}
+impl Eq for DecafPoint {}
 
 impl DecafPoint {
     pub const IDENTITY: DecafPoint = DecafPoint(ExtendedPoint::IDENTITY);
 
     pub const GENERATOR: DecafPoint = DECAF_BASEPOINT;
 
-    pub fn equals(&self, other: &DecafPoint) -> bool {
-        self.0.X * other.0.Y == self.0.Y * other.0.X
+    pub fn add(&self, other: &DecafPoint) -> DecafPoint {
+        DecafPoint(self.0.to_extensible().add_extended(&other.0).to_extended())
     }
-
-    // pub fn add(&self, other: &DecafPoint) -> DecafPoint {
-    //     DecafPoint(self.0.to_extensible().add_extended(&other.0).to_extended())
-    // }
 
     pub fn sub(&self, other: &DecafPoint) -> DecafPoint {
         DecafPoint(self.0.to_extensible().sub_extended(&other.0).to_extended())
@@ -77,10 +80,42 @@ impl DecafPoint {
     }
 }
 
-impl CompressedDecaf {
-    pub fn identity() -> CompressedDecaf {
-        CompressedDecaf([0; 56])
+#[derive(Copy, Clone, Debug)]
+pub struct CompressedDecaf(pub [u8; 56]);
+
+impl Default for CompressedDecaf {
+    fn default() -> CompressedDecaf {
+        Self::IDENTITY
     }
+}
+
+impl ConstantTimeEq for CompressedDecaf {
+    fn ct_eq(&self, other: &CompressedDecaf) -> Choice {
+        self.as_bytes().ct_eq(other.as_bytes())
+    }
+}
+
+impl ConditionallySelectable for CompressedDecaf {
+    fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
+        let mut bytes = [0u8; 56];
+        for i in 0..56 {
+            bytes[i] = u8::conditional_select(&a.0[i], &b.0[i], choice);
+        }
+        Self(bytes)
+    }
+}
+
+impl PartialEq for CompressedDecaf {
+    fn eq(&self, other: &CompressedDecaf) -> bool {
+        self.ct_eq(other).into()
+    }
+}
+
+impl Eq for CompressedDecaf {}
+
+impl CompressedDecaf {
+    /// The compressed identity point
+    pub const IDENTITY: Self = Self([0; 56]);
 
     // XXX: We allow the identity point
     /// XXX: Clean this up to be more descriptive of what is happening
@@ -92,7 +127,7 @@ impl CompressedDecaf {
         // So we can use to_bytes -> from_bytes and if the representations are the same, then the element was already in reduced form
         let s_bytes_check = s.to_bytes();
         let s_encoding_is_canonical = &s_bytes_check[..].ct_eq(&self.0);
-        let s_is_negative = s.is_negative();
+        // let s_is_negative = s.is_negative();
         if s_encoding_is_canonical.unwrap_u8() == 0u8 || s.is_negative().unwrap_u8() == 1u8 {
             return None;
         }
@@ -122,6 +157,10 @@ impl CompressedDecaf {
 
         Some(DecafPoint(ExtendedPoint { X: X, Y, Z, T }))
     }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
 }
 
 #[cfg(test)]
@@ -147,14 +186,14 @@ mod test {
         // Adding the DecafPoint should be the same as adding the Edwards points and encoding the result as Decaf
         let Decaf_P3 = Decaf_P + Decaf_P2;
 
-        assert!(Decaf_P3.equals(&expected_Decaf_P3));
+        assert_eq!(Decaf_P3, expected_Decaf_P3);
     }
 
     #[test]
     fn test_identity() {
         // Basic test to check the identity is being encoded properly
         let compress_identity = DecafPoint::IDENTITY.compress();
-        assert!(compress_identity == CompressedDecaf::identity())
+        assert!(compress_identity == CompressedDecaf::IDENTITY)
     }
 
     #[test]
