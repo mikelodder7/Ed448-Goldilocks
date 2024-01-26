@@ -4,6 +4,7 @@ use crate::curve::twedwards::extended::ExtendedPoint;
 use std::fmt;
 use subtle::{Choice, ConstantTimeEq};
 
+#[derive(Copy, Clone, Debug)]
 pub struct RistrettoPoint(ExtendedPoint);
 
 #[derive(Copy, Clone)]
