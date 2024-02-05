@@ -36,6 +36,9 @@
 // XXX: Change this to deny later on
 #![warn(unused_attributes, unused_imports, unused_mut, unused_must_use)]
 #![allow(non_snake_case)]
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
 
 // Internal macros. Must come first!
 #[macro_use]

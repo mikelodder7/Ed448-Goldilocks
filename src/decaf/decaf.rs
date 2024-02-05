@@ -3,6 +3,9 @@
 use crate::constants::DECAF_BASEPOINT;
 use crate::curve::twedwards::extended::ExtendedPoint;
 use crate::field::FieldElement;
+use alloc::boxed::Box;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use core::fmt::{Display, Formatter, Result as FmtResult};
 use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption};
 
