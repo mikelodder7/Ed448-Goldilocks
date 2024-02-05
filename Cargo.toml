@@ -30,6 +30,7 @@ optional = true
 [features]
 default = ["dep:zeroize", "serde"]
 serde = ["dep:serde", "hex"]
+zeroize = ["dep:zeroize"]
 
 [dev-dependencies]
 hex-literal = "0.4"
