@@ -1,7 +1,7 @@
-use std::borrow::Borrow;
-use std::fmt::{Display, Formatter, LowerHex, Result as FmtResult, UpperHex};
-use std::iter::Sum;
-use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use core::borrow::Borrow;
+use core::fmt::{Display, Formatter, LowerHex, Result as FmtResult, UpperHex};
+use core::iter::Sum;
+use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 use crate::constants::BASEPOINT_ORDER;
 use crate::curve::edwards::affine::AffinePoint;
