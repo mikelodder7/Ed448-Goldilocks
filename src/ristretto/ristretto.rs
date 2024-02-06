@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
 use crate::curve::twedwards::extended::ExtendedPoint;
-use std::fmt;
+use core::fmt;
 use subtle::{Choice, ConstantTimeEq};
 
 #[derive(Copy, Clone, Debug)]

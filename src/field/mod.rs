@@ -6,6 +6,10 @@ use crate::curve::edwards::affine::AffinePoint;
 use crate::curve::edwards::EdwardsPoint;
 use crate::curve::twedwards::extended::ExtendedPoint as TwExtendedPoint;
 
+use core::{
+    fmt::{Debug, Display, Formatter, LowerHex, Result as FmtResult, UpperHex},
+    ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
+};
 use elliptic_curve::{
     bigint::{impl_modulus, modular::constant_mod::*, Encoding, U448, U704},
     generic_array::{
@@ -14,11 +18,8 @@ use elliptic_curve::{
     },
     hash2curve::FromOkm,
 };
-use std::{
-    fmt::{Debug, Display, Formatter, LowerHex, Result as FmtResult, UpperHex},
-    ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
-};
 use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq};
+#[cfg(feature = "zeroize")]
 use zeroize::DefaultIsZeroes;
 
 pub const GOLDILOCKS_BASE_POINT: EdwardsPoint = EdwardsPoint {
@@ -99,6 +100,7 @@ impl FromOkm for FieldElement {
     }
 }
 
+#[cfg(feature = "zeroize")]
 impl DefaultIsZeroes for FieldElement {}
 
 impl Add<&FieldElement> for &FieldElement {

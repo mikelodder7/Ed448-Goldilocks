@@ -13,8 +13,8 @@
 // use crate::constants::A_PLUS_TWO_OVER_FOUR;
 use crate::curve::edwards::extended::EdwardsPoint;
 use crate::field::{FieldElement, Scalar};
-use std::fmt;
-use std::ops::Mul;
+use core::fmt;
+use core::ops::Mul;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 #[cfg(feature = "zeroize")]
 use zeroize::Zeroize;

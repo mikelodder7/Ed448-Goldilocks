@@ -1,4 +1,4 @@
-use std::{
+use core::{
     borrow::Borrow,
     iter::Sum,
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
