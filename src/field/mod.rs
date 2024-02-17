@@ -6,6 +6,7 @@ use crate::curve::edwards::affine::AffinePoint;
 use crate::curve::edwards::EdwardsPoint;
 use crate::curve::twedwards::extended::ExtendedPoint as TwExtendedPoint;
 
+use elliptic_curve::hash2curve::MapToCurve;
 use core::{
     fmt::{Debug, Display, Formatter, LowerHex, Result as FmtResult, UpperHex},
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
@@ -248,6 +249,14 @@ impl Neg for FieldElement {
 
     fn neg(self) -> FieldElement {
         Self(self.0.neg())
+    }
+}
+
+impl MapToCurve for FieldElement {
+    type Output = EdwardsPoint;
+
+    fn map_to_curve(&self) -> Self::Output {
+        self.map_to_curve_elligator2().to_edwards()
     }
 }
 

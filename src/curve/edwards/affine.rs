@@ -1,12 +1,21 @@
+// use elliptic_curve::FieldBytes;
+// use elliptic_curve::point::AffineCoordinates;
 use crate::curve::edwards::EdwardsPoint;
 use crate::field::FieldElement;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
+use zeroize::DefaultIsZeroes;
 
 // Affine point on untwisted curve
 #[derive(Copy, Clone, Debug)]
 pub struct AffinePoint {
     pub(crate) x: FieldElement,
     pub(crate) y: FieldElement,
+}
+
+impl Default for AffinePoint {
+    fn default() -> Self {
+        Self::IDENTITY
+    }
 }
 
 impl ConstantTimeEq for AffinePoint {
@@ -31,6 +40,23 @@ impl PartialEq for AffinePoint {
 }
 
 impl Eq for AffinePoint {}
+
+// impl AffineCoordinates for AffinePoint {
+//     type FieldRepr = FieldBytes<Ed448>;
+//
+//     fn x(&self) -> Self::FieldRepr {
+//         // This is really the opposite of what we want to do because
+//         // Edwards curves store the y-coordinate and the sign of the x-coordinate
+//         // so this is mislabeled.
+//         FieldBytes::<Ed448>::clone_from_slice(&self.x.to_bytes())
+//     }
+//
+//     fn y_is_odd(&self) -> Choice {
+//         self.y.is_negative()
+//     }
+// }
+
+impl DefaultIsZeroes for AffinePoint {}
 
 impl AffinePoint {
     /// The identity point

@@ -5,6 +5,9 @@ use core::iter::{Product, Sum};
 use core::ops::{Add, AddAssign, Index, IndexMut, Mul, MulAssign, Neg, Sub, SubAssign};
 
 use core::fmt::{Display, Formatter, Result as FmtResult};
+use elliptic_curve::bigint::{Limb, U448, U896};
+use elliptic_curve::ops::{Invert, Reduce, ReduceNonZero};
+use elliptic_curve::scalar::{FromUintUnchecked, IsHigh};
 use elliptic_curve::{
     bigint::{Encoding, U704},
     ff::{helpers, Field},
@@ -17,13 +20,17 @@ use elliptic_curve::{
 };
 use rand_core::{CryptoRng, RngCore};
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
+use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::ops::ShrAssign;
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeGreater, CtOption};
+use zeroize::DefaultIsZeroes;
 
 use crate::constants;
 
 /// This is the scalar field
 /// size = 4q = 2^446 - 0x8335dc163bb124b65129c96fde933d8d723a70aadc873d6d54a7bb0d
 /// We can therefore use 14 saturated 32-bit limbs
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialOrd, Ord)]
 pub struct Scalar(pub(crate) [u32; 14]);
 
 /// The number of bytes needed to represent the scalar field
@@ -32,6 +39,8 @@ pub type ScalarBytes = GenericArray<u8, U57>;
 pub type WideScalarBytes = GenericArray<u8, U114>;
 
 pub(crate) const MODULUS: Scalar = constants::BASEPOINT_ORDER;
+pub(crate) const ORDER: U448 = U448::from_be_hex("3fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3");
+pub(crate) const WIDE_ORDER: U896 = U896::from_be_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3");
 
 // Montgomomery R^2
 const R2: Scalar = Scalar([
@@ -453,7 +462,7 @@ impl TryFrom<&[u8]> for Scalar {
         if bytes.len() != 57 {
             return Err("invalid byte length".to_string());
         }
-        let scalar_bytes = ScalarBytes::clone_from_slice(&bytes[..]);
+        let scalar_bytes = ScalarBytes::clone_from_slice(bytes);
         Option::<Scalar>::from(Scalar::from_canonical_bytes(&scalar_bytes))
             .ok_or_else(|| "scalar was not canonically encoded".to_string())
     }
@@ -565,6 +574,174 @@ impl FromOkm for Scalar {
         num = num.wrapping_rem(&SEMI_WIDE_MODULUS);
         let bytes = <[u8; 56]>::try_from(&num.to_le_bytes()[..56]).unwrap();
         Self::from_bytes(&bytes)
+    }
+}
+
+impl Reduce<U448> for Scalar {
+    type Bytes = ScalarBytes;
+
+    fn reduce(bytes: U448) -> Self {
+        let (r, underflow) = bytes.sbb(&ORDER, Limb::ZERO);
+        let underflow = Choice::from((underflow.0 >> (Limb::BITS - 1)) as u8);
+        let bytes = U448::conditional_select(&bytes, &r, underflow).to_le_bytes();
+        Self::from_bytes(&bytes)
+    }
+
+    fn reduce_bytes(bytes: &Self::Bytes) -> Self {
+        Self::reduce(U448::from_le_slice(bytes))
+    }
+}
+
+impl Reduce<U896> for Scalar {
+    type Bytes = WideScalarBytes;
+
+    fn reduce(bytes: U896) -> Self {
+        let bb = bytes.to_le_bytes();
+        let bytes = WideScalarBytes::from_slice(&bb);
+        <Self as Reduce<U896>>::reduce_bytes(bytes)
+    }
+
+    fn reduce_bytes(bytes: &Self::Bytes) -> Self {
+        Self::from_bytes_mod_order_wide(bytes)
+    }
+}
+
+impl ReduceNonZero<U448> for Scalar {
+    fn reduce_nonzero(bytes: U448) -> Self {
+        const ORDER_MINUS_ONE: U448 = ORDER.wrapping_sub(&U448::ONE);
+        let (r, underflow) = bytes.sbb(&ORDER_MINUS_ONE, Limb::ZERO);
+        let underflow = Choice::from((underflow.0 >> (Limb::BITS - 1)) as u8);
+        let bytes = U448::conditional_select(&bytes, &r, !underflow)
+            .wrapping_add(&U448::ONE)
+            .to_le_bytes();
+        Self::from_bytes(&bytes)
+    }
+
+    fn reduce_nonzero_bytes(bytes: &Self::Bytes) -> Self {
+        Self::reduce_nonzero(U448::from_le_slice(bytes))
+    }
+}
+
+impl ReduceNonZero<U896> for Scalar {
+    fn reduce_nonzero(bytes: U896) -> Self {
+        const WIDE_ORDER_MINUS_ONE: U896 = WIDE_ORDER.wrapping_sub(&U896::ONE);
+        let (r, underflow) = bytes.sbb(&WIDE_ORDER_MINUS_ONE, Limb::ZERO);
+        let underflow = Choice::from((underflow.0 >> (Limb::BITS - 1)) as u8);
+
+        let t = U896::conditional_select(&bytes, &r, !underflow).wrapping_add(&U896::ONE);
+        let t_bytes = t.to_le_bytes();
+        let bytes = WideScalarBytes::from_slice(&t_bytes);
+        Self::from_bytes_mod_order_wide(bytes)
+    }
+
+    fn reduce_nonzero_bytes(bytes: &Self::Bytes) -> Self {
+        Self::reduce_nonzero(U896::from_le_slice(bytes))
+    }
+}
+
+// impl PrimeFieldBits for Scalar {
+//     type ReprBits = [u32; 14];
+//
+//     fn to_le_bits(&self) -> ScalarBits<Ed448> {
+//         self.0.into()
+//     }
+//
+//     fn char_le_bits() -> ScalarBits<Ed448> {
+//         BASEPOINT_ORDER.0.into()
+//     }
+// }
+
+// impl From<ScalarPrimitive<Ed448>> for Scalar {
+//     fn from(scalar: ScalarPrimitive<Ed448>) -> Self {
+//         let bytes = scalar.as_uint().to_le_bytes();
+//         Self::from_bytes(&bytes)
+//     }
+// }
+
+// impl From<&ScalarPrimitive<Ed448>> for Scalar {
+//     fn from(scalar: &ScalarPrimitive<Ed448>) -> Self {
+//         let bytes = scalar.as_uint().to_le_bytes();
+//         Self::from_bytes(&bytes)
+//     }
+// }
+
+// impl From<Scalar> for ScalarPrimitive<Ed448> {
+//     fn from(scalar: Scalar) -> Self {
+//         Self::from(&scalar)
+//     }
+// }
+
+// impl From<&Scalar> for ScalarPrimitive<Ed448> {
+//     fn from(scalar: &Scalar) -> Self {
+//         let uint = U448::from_le_bytes(scalar.to_bytes());
+//         ScalarPrimitive::new(uint).unwrap()
+//     }
+// }
+
+impl From<U448> for Scalar {
+    fn from(uint: U448) -> Self {
+        <Self as Reduce<U448>>::reduce(uint)
+    }
+}
+
+impl From<&U448> for Scalar {
+    fn from(uint: &U448) -> Self {
+        Self::from(*uint)
+    }
+}
+
+impl From<Scalar> for U448 {
+    fn from(scalar: Scalar) -> Self {
+        U448::from_le_bytes(scalar.to_bytes())
+    }
+}
+
+impl From<&Scalar> for U448 {
+    fn from(scalar: &Scalar) -> Self {
+        Self::from(*scalar)
+    }
+}
+
+impl FromUintUnchecked for Scalar {
+    type Uint = U448;
+    fn from_uint_unchecked(uint: U448) -> Self {
+        let bytes = uint.to_le_bytes();
+        Self::from_bytes(&bytes)
+    }
+}
+
+impl Invert for Scalar {
+    type Output = CtOption<Self>;
+
+    fn invert(&self) -> CtOption<Self> {
+        CtOption::new(self.invert(), !self.ct_eq(&Self::ZERO))
+    }
+}
+
+impl IsHigh for Scalar {
+    fn is_high(&self) -> Choice {
+        const HALF_ORDER: U448 = ORDER.shr_vartime(1);
+        U448::from_le_bytes(self.to_bytes()).ct_gt(&HALF_ORDER)
+    }
+}
+
+impl AsRef<Scalar> for Scalar {
+    fn as_ref(&self) -> &Scalar {
+        self
+    }
+}
+
+impl DefaultIsZeroes for Scalar {}
+
+impl ShrAssign<usize> for Scalar {
+    fn shr_assign(&mut self, shift: usize) {
+        let mut carry = 0;
+        for limb in self.0.iter_mut().rev() {
+            let new_carry = *limb & ((1 << shift) - 1);
+            *limb >>= shift;
+            *limb |= carry << (32 - shift);
+            carry = new_carry;
+        }
     }
 }
 
@@ -751,6 +928,20 @@ impl Scalar {
         montgomery_multiply(&result, &Scalar::ONE)
     }
 
+    /// Return the square root of this scalar, if it is a quadratic residue.
+    pub fn sqrt(&self) -> CtOption<Self> {
+        let ss = self.pow([
+            0x48de30a4aad6113d,
+            0x085b309ca37163d5,
+            0x7113b6d26bb58da4,
+            0xffffffffdf3288fa,
+            0xffffffffffffffff,
+            0xffffffffffffffff,
+            0x0fffffffffffffff,
+        ]);
+        CtOption::new(ss, ss.square().ct_eq(self))
+    }
+
     /// Halves a Scalar modulo the prime
     pub fn halve(&self) -> Self {
         let mut result = Scalar::ZERO;
@@ -779,7 +970,7 @@ impl Scalar {
     /// - `Some(s)`, where `s` is the `Scalar` corresponding to `bytes`,
     ///   if `bytes` is a canonical byte representation;
     /// - `None` if `bytes` is not a canonical byte representation.
-    pub fn from_canonical_bytes(bytes: &ScalarBytes) -> CtOption<Scalar> {
+    pub fn from_canonical_bytes(bytes: &ScalarBytes) -> CtOption<Self> {
         // Check that the 10 high bits are not set
         let is_valid = is_zero(bytes[56]) | is_zero(bytes[55] >> 6);
         let bytes: [u8; 56] = core::array::from_fn(|i| bytes[i]);

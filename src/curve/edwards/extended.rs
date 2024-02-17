@@ -12,7 +12,11 @@ use crate::curve::montgomery::montgomery::MontgomeryPoint; // XXX: need to fix t
 use crate::curve::scalar_mul::variable_base;
 use crate::curve::twedwards::extended::ExtendedPoint as TwistedExtendedPoint;
 use crate::field::{FieldElement, Scalar};
+use elliptic_curve::group::cofactor::CofactorGroup;
+use elliptic_curve::group::prime::PrimeGroup;
+use elliptic_curve::group::Curve;
 use elliptic_curve::hash2curve::{ExpandMsg, ExpandMsgXof, Expander, FromOkm};
+use elliptic_curve::ops::{LinearCombination, MulByGenerator};
 use elliptic_curve::{
     generic_array::{
         typenum::{U57, U84},
@@ -22,6 +26,7 @@ use elliptic_curve::{
 };
 use rand_core::RngCore;
 use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption};
+use zeroize::DefaultIsZeroes;
 
 /// The default hash to curve domain separation tag
 pub const DEFAULT_HASH_TO_CURVE_SUITE: &[u8] = b"edwards448_XOF:SHAKE256_ELL2_RO_";
@@ -427,6 +432,24 @@ impl GroupEncoding for EdwardsPoint {
     }
 }
 
+impl CofactorGroup for EdwardsPoint {
+    type Subgroup = EdwardsPoint;
+
+    fn clear_cofactor(&self) -> Self::Subgroup {
+        self.double().double()
+    }
+
+    fn into_subgroup(self) -> CtOption<Self::Subgroup> {
+        CtOption::new(self.clear_cofactor(), self.is_torsion_free())
+    }
+
+    fn is_torsion_free(&self) -> Choice {
+        self.is_torsion_free()
+    }
+}
+
+impl PrimeGroup for EdwardsPoint {}
+
 impl From<EdwardsPoint> for Vec<u8> {
     fn from(value: EdwardsPoint) -> Self {
         Self::from(&value)
@@ -499,6 +522,42 @@ impl From<EdwardsPoint> for PointBytes {
 impl From<&EdwardsPoint> for PointBytes {
     fn from(value: &EdwardsPoint) -> Self {
         Self::from(*value)
+    }
+}
+
+impl From<EdwardsPoint> for AffinePoint {
+    fn from(value: EdwardsPoint) -> Self {
+        value.to_affine()
+    }
+}
+
+impl From<&AffinePoint> for EdwardsPoint {
+    fn from(value: &AffinePoint) -> Self {
+        value.to_edwards()
+    }
+}
+
+impl From<AffinePoint> for EdwardsPoint {
+    fn from(value: AffinePoint) -> Self {
+        value.to_edwards()
+    }
+}
+
+impl From<&EdwardsPoint> for AffinePoint {
+    fn from(value: &EdwardsPoint) -> Self {
+        value.to_affine()
+    }
+}
+
+impl LinearCombination for EdwardsPoint {}
+
+impl MulByGenerator for EdwardsPoint {}
+
+impl Curve for EdwardsPoint {
+    type AffineRepr = AffinePoint;
+
+    fn to_affine(&self) -> AffinePoint {
+        self.to_affine()
     }
 }
 
@@ -820,6 +879,24 @@ define_add_variants!(
     Output = EdwardsPoint
 );
 
+define_add_variants!(LHS = EdwardsPoint, RHS = AffinePoint, Output = EdwardsPoint);
+
+define_add_variants!(LHS = AffinePoint, RHS = EdwardsPoint, Output = EdwardsPoint);
+
+impl Add<&AffinePoint> for &EdwardsPoint {
+    type Output = EdwardsPoint;
+    fn add(self, other: &AffinePoint) -> EdwardsPoint {
+        *self + *other
+    }
+}
+
+impl Add<&EdwardsPoint> for &AffinePoint {
+    type Output = EdwardsPoint;
+    fn add(self, other: &EdwardsPoint) -> EdwardsPoint {
+        *other + *self
+    }
+}
+
 impl<'b> AddAssign<&'b EdwardsPoint> for EdwardsPoint {
     fn add_assign(&mut self, _rhs: &'b EdwardsPoint) {
         *self = (self as &EdwardsPoint) + _rhs;
@@ -827,6 +904,22 @@ impl<'b> AddAssign<&'b EdwardsPoint> for EdwardsPoint {
 }
 
 define_add_assign_variants!(LHS = EdwardsPoint, RHS = EdwardsPoint);
+
+impl AddAssign<&AffinePoint> for EdwardsPoint {
+    fn add_assign(&mut self, rhs: &AffinePoint) {
+        *self += rhs.to_edwards();
+    }
+}
+
+define_add_assign_variants!(LHS = EdwardsPoint, RHS = AffinePoint);
+
+impl AddAssign<&EdwardsPoint> for AffinePoint {
+    fn add_assign(&mut self, rhs: &EdwardsPoint) {
+        *self = (self.to_edwards() + rhs).to_affine();
+    }
+}
+
+define_add_assign_variants!(LHS = AffinePoint, RHS = EdwardsPoint);
 
 impl<'a, 'b> Sub<&'b EdwardsPoint> for &'a EdwardsPoint {
     type Output = EdwardsPoint;
@@ -841,6 +934,24 @@ define_sub_variants!(
     Output = EdwardsPoint
 );
 
+impl Sub<&AffinePoint> for &EdwardsPoint {
+    type Output = EdwardsPoint;
+    fn sub(self, other: &AffinePoint) -> EdwardsPoint {
+        *self - other.to_edwards()
+    }
+}
+
+define_sub_variants!(LHS = EdwardsPoint, RHS = AffinePoint, Output = EdwardsPoint);
+
+impl Sub<&EdwardsPoint> for &AffinePoint {
+    type Output = EdwardsPoint;
+    fn sub(self, other: &EdwardsPoint) -> EdwardsPoint {
+        *self - other
+    }
+}
+
+define_sub_variants!(LHS = AffinePoint, RHS = EdwardsPoint, Output = EdwardsPoint);
+
 impl<'b> SubAssign<&'b EdwardsPoint> for EdwardsPoint {
     fn sub_assign(&mut self, _rhs: &'b EdwardsPoint) {
         *self = (self as &EdwardsPoint) - _rhs;
@@ -848,6 +959,22 @@ impl<'b> SubAssign<&'b EdwardsPoint> for EdwardsPoint {
 }
 
 define_sub_assign_variants!(LHS = EdwardsPoint, RHS = EdwardsPoint);
+
+impl SubAssign<&AffinePoint> for EdwardsPoint {
+    fn sub_assign(&mut self, rhs: &AffinePoint) {
+        *self -= rhs.to_edwards();
+    }
+}
+
+define_sub_assign_variants!(LHS = EdwardsPoint, RHS = AffinePoint);
+
+impl SubAssign<&EdwardsPoint> for AffinePoint {
+    fn sub_assign(&mut self, rhs: &EdwardsPoint) {
+        *self = (self.to_edwards() - rhs).to_affine();
+    }
+}
+
+define_sub_assign_variants!(LHS = AffinePoint, RHS = EdwardsPoint);
 
 impl<T> Sum<T> for EdwardsPoint
 where
@@ -933,8 +1060,7 @@ impl<'de> serde::Deserialize<'de> for EdwardsPoint {
     }
 }
 
-#[cfg(feature = "zeroize")]
-impl zeroize::DefaultIsZeroes for EdwardsPoint {}
+impl DefaultIsZeroes for EdwardsPoint {}
 
 #[cfg(test)]
 mod tests {
