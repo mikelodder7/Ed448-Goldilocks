@@ -19,8 +19,6 @@ use elliptic_curve::{
     PrimeField,
 };
 use rand_core::{CryptoRng, RngCore};
-use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
-use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::ops::ShrAssign;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeGreater, CtOption};
 use zeroize::DefaultIsZeroes;

@@ -6,11 +6,11 @@ use crate::curve::edwards::affine::AffinePoint;
 use crate::curve::edwards::EdwardsPoint;
 use crate::curve::twedwards::extended::ExtendedPoint as TwExtendedPoint;
 
-use elliptic_curve::hash2curve::MapToCurve;
 use core::{
     fmt::{Debug, Display, Formatter, LowerHex, Result as FmtResult, UpperHex},
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
+use elliptic_curve::hash2curve::MapToCurve;
 use elliptic_curve::{
     bigint::{impl_modulus, modular::constant_mod::*, Encoding, U448, U704},
     generic_array::{
