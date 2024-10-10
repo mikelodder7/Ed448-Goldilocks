@@ -36,9 +36,17 @@
 // XXX: Change this to deny later on
 #![warn(unused_attributes, unused_imports, unused_mut, unused_must_use)]
 #![allow(non_snake_case)]
-#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(all(not(feature = "alloc"), not(feature = "std")), no_std)]
 
+#[cfg(all(feature = "alloc", not(feature = "std")))]
 extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
+
+#[cfg(all(feature = "alloc", not(feature = "std")))]
+use alloc::{boxed::Box, string::ToString, vec::Vec};
+#[cfg(feature = "std")]
+use std::{boxed::Box, string::ToString, vec::Vec};
 
 // Internal macros. Must come first!
 #[macro_use]
@@ -62,5 +70,54 @@ pub use curve::{
     AffinePoint, CompressedEdwardsY, EdwardsPoint, MontgomeryPoint, ProjectiveMontgomeryPoint,
 };
 pub use decaf::{CompressedDecaf, DecafPoint};
-pub use field::{Scalar, ScalarBytes, WideScalarBytes};
+pub use field::{Scalar, ScalarBytes, WideScalarBytes, MODULUS_LIMBS, ORDER, WIDE_ORDER};
 pub use ristretto::{CompressedRistretto, RistrettoPoint};
+
+use elliptic_curve::{
+    bigint::{ArrayEncoding, ByteArray, U448},
+    generic_array::typenum::U57,
+    point::PointCompression,
+    Curve, CurveArithmetic, FieldBytesEncoding,
+};
+
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct Ed448;
+
+pub type Ed448FieldBytes = elliptic_curve::FieldBytes<Ed448>;
+
+pub type Ed448ScalarBits = elliptic_curve::scalar::ScalarBits<Ed448>;
+
+pub type Ed448NonZeroScalar = elliptic_curve::NonZeroScalar<Ed448>;
+
+unsafe impl Send for Ed448 {}
+unsafe impl Sync for Ed448 {}
+
+impl Curve for Ed448 {
+    type FieldBytesSize = U57;
+    type Uint = U448;
+
+    const ORDER: U448 = ORDER;
+}
+
+impl PointCompression for Ed448 {
+    const COMPRESS_POINTS: bool = true;
+}
+
+impl FieldBytesEncoding<Ed448> for U448 {
+    fn decode_field_bytes(field_bytes: &Ed448FieldBytes) -> Self {
+        let data = ByteArray::<U448>::from_slice(field_bytes);
+        U448::from_le_byte_array(*data)
+    }
+
+    fn encode_field_bytes(&self) -> Ed448FieldBytes {
+        let mut data = Ed448FieldBytes::default();
+        data.copy_from_slice(&self.to_le_byte_array()[..]);
+        data
+    }
+}
+
+impl CurveArithmetic for Ed448 {
+    type AffinePoint = AffinePoint;
+    type ProjectivePoint = EdwardsPoint;
+    type Scalar = Scalar;
+}

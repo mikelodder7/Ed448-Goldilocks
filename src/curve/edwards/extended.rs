@@ -1,6 +1,3 @@
-use alloc::boxed::Box;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 use core::borrow::Borrow;
 use core::fmt::{Display, Formatter, LowerHex, Result as FmtResult, UpperHex};
 use core::iter::Sum;
@@ -8,10 +5,11 @@ use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 use crate::constants::BASEPOINT_ORDER;
 use crate::curve::edwards::affine::AffinePoint;
-use crate::curve::montgomery::montgomery::MontgomeryPoint; // XXX: need to fix this path
+use crate::curve::montgomery::MontgomeryPoint; // XXX: need to fix this path
 use crate::curve::scalar_mul::variable_base;
 use crate::curve::twedwards::extended::ExtendedPoint as TwistedExtendedPoint;
 use crate::field::{FieldElement, Scalar};
+use crate::*;
 use elliptic_curve::group::cofactor::CofactorGroup;
 use elliptic_curve::group::prime::PrimeGroup;
 use elliptic_curve::group::Curve;
@@ -87,8 +85,8 @@ impl Default for CompressedEdwardsY {
 impl ConditionallySelectable for CompressedEdwardsY {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         let mut bytes = [0u8; 57];
-        for i in 0..bytes.len() {
-            bytes[i] = u8::conditional_select(&a.0[i], &b.0[i], choice);
+        for (i, byte) in bytes.iter_mut().enumerate() {
+            *byte = u8::conditional_select(&a.0[i], &b.0[i], choice);
         }
         Self(bytes)
     }
@@ -120,28 +118,32 @@ impl AsRef<PointBytes> for CompressedEdwardsY {
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl From<CompressedEdwardsY> for Vec<u8> {
     fn from(value: CompressedEdwardsY) -> Self {
         Self::from(&value)
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl From<&CompressedEdwardsY> for Vec<u8> {
     fn from(value: &CompressedEdwardsY) -> Self {
         value.0.to_vec()
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<Vec<u8>> for CompressedEdwardsY {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
         Self::try_from(&value)
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<&Vec<u8>> for CompressedEdwardsY {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
         Self::try_from(value.as_slice())
@@ -149,7 +151,7 @@ impl TryFrom<&Vec<u8>> for CompressedEdwardsY {
 }
 
 impl TryFrom<&[u8]> for CompressedEdwardsY {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         let bytes = <PointBytes>::try_from(value).map_err(|_| "Invalid length")?;
@@ -157,8 +159,9 @@ impl TryFrom<&[u8]> for CompressedEdwardsY {
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<Box<[u8]>> for CompressedEdwardsY {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(value: Box<[u8]>) -> Result<Self, Self::Error> {
         Self::try_from(value.as_ref())
@@ -178,18 +181,17 @@ impl From<&CompressedEdwardsY> for PointBytes {
 }
 
 impl TryFrom<PointBytes> for CompressedEdwardsY {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(value: PointBytes) -> Result<Self, Self::Error> {
         let pt = CompressedEdwardsY(value);
-        let _ = Option::<EdwardsPoint>::from(pt.decompress())
-            .ok_or_else(|| "Invalid point".to_string())?;
+        let _ = Option::<EdwardsPoint>::from(pt.decompress()).ok_or("Invalid point")?;
         Ok(pt)
     }
 }
 
 impl TryFrom<&PointBytes> for CompressedEdwardsY {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(value: &PointBytes) -> Result<Self, Self::Error> {
         Self::try_from(*value)
@@ -197,60 +199,21 @@ impl TryFrom<&PointBytes> for CompressedEdwardsY {
 }
 
 #[cfg(feature = "serde")]
-impl serde::Serialize for CompressedEdwardsY {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let bytes = self.0;
-        if s.is_human_readable() {
-            hex::encode(bytes).serialize(s)
-        } else {
-            use serde::ser::SerializeTuple;
-            let mut seq = s.serialize_tuple(bytes.len())?;
-            for b in &bytes[..] {
-                seq.serialize_element(b)?;
-            }
-            seq.end()
-        }
+impl serdect::serde::Serialize for CompressedEdwardsY {
+    fn serialize<S: serdect::serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        serdect::array::serialize_hex_lower_or_bin(&self.0, s)
     }
 }
 
 #[cfg(feature = "serde")]
-impl<'de> serde::Deserialize<'de> for CompressedEdwardsY {
+impl<'de> serdect::serde::Deserialize<'de> for CompressedEdwardsY {
     fn deserialize<D>(d: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'de>,
+        D: serdect::serde::Deserializer<'de>,
     {
-        if d.is_human_readable() {
-            let s = String::deserialize(d)?;
-            let bytes = hex::decode(s).map_err(serde::de::Error::custom)?;
-            CompressedEdwardsY::try_from(bytes).map_err(serde::de::Error::custom)
-        } else {
-            use serde::de::{SeqAccess, Visitor};
-
-            struct CompressedEdwardsYVisitor;
-
-            impl<'de> Visitor<'de> for CompressedEdwardsYVisitor {
-                type Value = CompressedEdwardsY;
-
-                fn expecting(&self, f: &mut Formatter<'_>) -> FmtResult {
-                    write!(f, "a 57-byte sequence")
-                }
-
-                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                where
-                    A: SeqAccess<'de>,
-                {
-                    let mut buf = [0u8; 57];
-                    for (i, b) in buf.iter_mut().enumerate() {
-                        *b = seq
-                            .next_element()?
-                            .ok_or_else(|| serde::de::Error::invalid_length(i, &self))?;
-                    }
-                    CompressedEdwardsY::try_from(buf).map_err(serde::de::Error::custom)
-                }
-            }
-
-            d.deserialize_tuple(57, CompressedEdwardsYVisitor)
-        }
+        let mut arr = [0u8; 57];
+        serdect::array::deserialize_hex_or_bin(&mut arr, d)?;
+        Ok(CompressedEdwardsY(arr))
     }
 }
 
@@ -450,28 +413,32 @@ impl CofactorGroup for EdwardsPoint {
 
 impl PrimeGroup for EdwardsPoint {}
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl From<EdwardsPoint> for Vec<u8> {
     fn from(value: EdwardsPoint) -> Self {
         Self::from(&value)
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl From<&EdwardsPoint> for Vec<u8> {
     fn from(value: &EdwardsPoint) -> Self {
         value.compress().0.to_vec()
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<Vec<u8>> for EdwardsPoint {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
         Self::try_from(&value)
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<&Vec<u8>> for EdwardsPoint {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
         Self::try_from(value.as_slice())
@@ -479,17 +446,18 @@ impl TryFrom<&Vec<u8>> for EdwardsPoint {
 }
 
 impl TryFrom<&[u8]> for EdwardsPoint {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let bytes = <PointBytes>::try_from(value)
-            .map_err(|_| "Invalid length, expected 57 bytes".to_string())?;
+        let bytes =
+            <PointBytes>::try_from(value).map_err(|_| "Invalid length, expected 57 bytes")?;
         Self::try_from(bytes)
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<Box<[u8]>> for EdwardsPoint {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(value: Box<[u8]>) -> Result<Self, Self::Error> {
         Self::try_from(value.as_ref())
@@ -497,16 +465,15 @@ impl TryFrom<Box<[u8]>> for EdwardsPoint {
 }
 
 impl TryFrom<PointBytes> for EdwardsPoint {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(value: PointBytes) -> Result<Self, Self::Error> {
-        Option::<Self>::from(CompressedEdwardsY(value).decompress())
-            .ok_or_else(|| "Invalid point".to_string())
+        Option::<Self>::from(CompressedEdwardsY(value).decompress()).ok_or("Invalid point")
     }
 }
 
 impl TryFrom<&PointBytes> for EdwardsPoint {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(value: &PointBytes) -> Result<Self, Self::Error> {
         Self::try_from(*value)
@@ -571,7 +538,7 @@ impl EdwardsPoint {
     };
 
     /// Generator for the prime subgroup
-    pub const GENERATOR: Self = crate::GOLDILOCKS_BASE_POINT;
+    pub const GENERATOR: Self = GOLDILOCKS_BASE_POINT;
 
     pub fn to_montgomery(&self) -> MontgomeryPoint {
         // u = y^2 * [(1-dy^2)/(1-y^2)]
@@ -589,7 +556,7 @@ impl EdwardsPoint {
     /// Generic scalar multiplication to compute s*P
     pub fn scalar_mul(&self, scalar: &Scalar) -> Self {
         // Compute floor(s/4)
-        let mut scalar_div_four = scalar.clone();
+        let mut scalar_div_four = *scalar;
         scalar_div_four.div_by_four();
 
         // Use isogeny and dual isogeny to compute phi^-1((s/4) * phi(P))
@@ -616,7 +583,7 @@ impl EdwardsPoint {
         // XXX: This claim has not been tested (although it sounds intuitive to me)
         let mut result = EdwardsPoint::IDENTITY;
         result.conditional_assign(&zero_p, Choice::from((s_mod_four == 0) as u8));
-        result.conditional_assign(&one_p, Choice::from((s_mod_four == 1) as u8));
+        result.conditional_assign(one_p, Choice::from((s_mod_four == 1) as u8));
         result.conditional_assign(&two_p, Choice::from((s_mod_four == 2) as u8));
         result.conditional_assign(&three_p, Choice::from((s_mod_four == 3) as u8));
 
@@ -674,7 +641,7 @@ impl EdwardsPoint {
     // XXX: See comment on addition, the formula is unified, so this will do for now
     //https://iacr.org/archive/asiacrypt2008/53500329/53500329.pdf (3.1)
     pub fn double(&self) -> Self {
-        self.add(&self)
+        self.add(self)
     }
 
     pub(crate) fn is_on_curve(&self) -> Choice {
@@ -730,7 +697,7 @@ impl EdwardsPoint {
         }
     }
 
-    pub(crate) fn to_twisted(&self) -> TwistedExtendedPoint {
+    pub(crate) fn to_twisted(self) -> TwistedExtendedPoint {
         self.edwards_isogeny(FieldElement::ONE)
     }
 
@@ -758,9 +725,9 @@ impl EdwardsPoint {
     /// # Return
     ///
     /// * `true` if `self` has zero torsion component and is in the
-    /// prime-order subgroup;
+    ///    prime-order subgroup;
     /// * `false` if `self` has a nonzero torsion component and is not
-    /// in the prime-order subgroup.
+    ///    in the prime-order subgroup.
     pub fn is_torsion_free(&self) -> Choice {
         (self * BASEPOINT_ORDER).ct_eq(&Self::IDENTITY)
     }
@@ -836,7 +803,7 @@ impl EdwardsPoint {
                 // >> 3 to convert to byte, / 8
                 // (W * j & W) gets the nibble, mod W
                 // 1 << W - 1 to get the offset
-                let index = (bytes[i][j * W >> 3] >> (W * j & W)) as usize & EDGE; // little-endian
+                let index = (bytes[i][(j * W) >> 3] >> ((W * j) & W)) as usize & EDGE; // little-endian
                 buckets[index] += points[i];
             }
 
@@ -1042,21 +1009,21 @@ impl<'a, 'b> Mul<&'b EdwardsPoint> for &'a Scalar {
 }
 
 #[cfg(feature = "serde")]
-impl serde::Serialize for EdwardsPoint {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+impl serdect::serde::Serialize for EdwardsPoint {
+    fn serialize<S: serdect::serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         self.compress().serialize(s)
     }
 }
 
 #[cfg(feature = "serde")]
-impl<'de> serde::Deserialize<'de> for EdwardsPoint {
+impl<'de> serdect::serde::Deserialize<'de> for EdwardsPoint {
     fn deserialize<D>(d: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'de>,
+        D: serdect::serde::Deserializer<'de>,
     {
         let compressed = CompressedEdwardsY::deserialize(d)?;
         Option::<EdwardsPoint>::from(compressed.decompress())
-            .ok_or_else(|| serde::de::Error::custom("invalid point"))
+            .ok_or_else(|| serdect::serde::de::Error::custom("invalid point"))
     }
 }
 

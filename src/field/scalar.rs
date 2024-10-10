@@ -1,29 +1,26 @@
-use alloc::boxed::Box;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
-use core::iter::{Product, Sum};
-use core::ops::{Add, AddAssign, Index, IndexMut, Mul, MulAssign, Neg, Sub, SubAssign};
+use crate::constants;
+use crate::*;
 
 use core::fmt::{Display, Formatter, Result as FmtResult};
-use elliptic_curve::bigint::{Limb, U448, U896};
-use elliptic_curve::ops::{Invert, Reduce, ReduceNonZero};
-use elliptic_curve::scalar::{FromUintUnchecked, IsHigh};
+use core::iter::{Product, Sum};
+use core::ops::{
+    Add, AddAssign, Index, IndexMut, Mul, MulAssign, Neg, Shr, ShrAssign, Sub, SubAssign,
+};
+
 use elliptic_curve::{
-    bigint::{Encoding, U704},
-    ff::{helpers, Field},
+    bigint::{Encoding, Limb, NonZero, U448, U704, U896},
+    ff::{helpers, Field, FieldBits, PrimeFieldBits},
     generic_array::{
         typenum::{U114, U57, U84, U88},
         GenericArray,
     },
     hash2curve::{ExpandMsg, Expander, FromOkm},
+    ops::{Invert, Reduce, ReduceNonZero},
+    scalar::{FromUintUnchecked, IsHigh, ScalarPrimitive},
     PrimeField,
 };
 use rand_core::{CryptoRng, RngCore};
-use std::ops::ShrAssign;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeGreater, CtOption};
-use zeroize::DefaultIsZeroes;
-
-use crate::constants;
 
 /// This is the scalar field
 /// size = 4q = 2^446 - 0x8335dc163bb124b65129c96fde933d8d723a70aadc873d6d54a7bb0d
@@ -37,8 +34,13 @@ pub type ScalarBytes = GenericArray<u8, U57>;
 pub type WideScalarBytes = GenericArray<u8, U114>;
 
 pub(crate) const MODULUS: Scalar = constants::BASEPOINT_ORDER;
-pub(crate) const ORDER: U448 = U448::from_be_hex("3fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3");
-pub(crate) const WIDE_ORDER: U896 = U896::from_be_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3");
+pub const ORDER: U448 = U448::from_be_hex("3fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3");
+pub const WIDE_ORDER: U896 = U896::from_be_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3");
+
+pub const MODULUS_LIMBS: [u32; 14] = [
+    0xab5844f3, 0x2378c292, 0x8dc58f55, 0x216cc272, 0xaed63690, 0xc44edb49, 0x7cca23e9, 0xffffffff,
+    0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0x3fffffff,
+];
 
 // Montgomomery R^2
 const R2: Scalar = Scalar([
@@ -69,8 +71,8 @@ impl ConstantTimeEq for Scalar {
 impl ConditionallySelectable for Scalar {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         let mut nums = [0u32; 14];
-        for i in 0..14 {
-            nums[i] = u32::conditional_select(&a.0[i], &b.0[i], choice);
+        for (i, n) in nums.iter_mut().enumerate() {
+            *n = u32::conditional_select(&a.0[i], &b.0[i], choice);
         }
         Self(nums)
     }
@@ -166,28 +168,7 @@ impl Add<&Scalar> for &Scalar {
     }
 }
 
-impl Add<&Scalar> for Scalar {
-    type Output = Scalar;
-
-    fn add(self, rhs: &Scalar) -> Self::Output {
-        add(&self, rhs)
-    }
-}
-
-impl Add<Scalar> for &Scalar {
-    type Output = Scalar;
-
-    fn add(self, rhs: Scalar) -> Self::Output {
-        add(self, &rhs)
-    }
-}
-
-impl Add<Scalar> for Scalar {
-    type Output = Scalar;
-    fn add(self, rhs: Scalar) -> Self::Output {
-        add(&self, &rhs)
-    }
-}
+define_add_variants!(LHS = Scalar, RHS = Scalar, Output = Scalar);
 
 impl AddAssign for Scalar {
     fn add_assign(&mut self, rhs: Self) {
@@ -210,28 +191,7 @@ impl Mul<&Scalar> for &Scalar {
     }
 }
 
-impl Mul<&Scalar> for Scalar {
-    type Output = Scalar;
-
-    fn mul(self, rhs: &Scalar) -> Self::Output {
-        self * *rhs
-    }
-}
-
-impl Mul<Scalar> for &Scalar {
-    type Output = Scalar;
-
-    fn mul(self, rhs: Scalar) -> Self::Output {
-        *self * rhs
-    }
-}
-
-impl Mul<Scalar> for Scalar {
-    type Output = Scalar;
-    fn mul(self, rhs: Scalar) -> Self::Output {
-        &self * &rhs
-    }
-}
+define_mul_variants!(LHS = Scalar, RHS = Scalar, Output = Scalar);
 
 impl MulAssign for Scalar {
     fn mul_assign(&mut self, rhs: Self) {
@@ -253,29 +213,7 @@ impl Sub<&Scalar> for &Scalar {
     }
 }
 
-impl Sub<&Scalar> for Scalar {
-    type Output = Scalar;
-
-    fn sub(self, rhs: &Scalar) -> Self::Output {
-        sub_extra(&self, rhs, 0)
-    }
-}
-
-impl Sub<Scalar> for &Scalar {
-    type Output = Scalar;
-
-    fn sub(self, rhs: Scalar) -> Self::Output {
-        sub_extra(self, &rhs, 0)
-    }
-}
-
-impl Sub<Scalar> for Scalar {
-    type Output = Scalar;
-
-    fn sub(self, rhs: Scalar) -> Self::Output {
-        sub_extra(&self, &rhs, 0)
-    }
-}
+define_sub_variants!(LHS = Scalar, RHS = Scalar, Output = Scalar);
 
 impl SubAssign for Scalar {
     fn sub_assign(&mut self, rhs: Self) {
@@ -413,12 +351,14 @@ impl PrimeField for Scalar {
     const DELTA: Self = Self([0x961, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl From<Scalar> for Vec<u8> {
     fn from(scalar: Scalar) -> Vec<u8> {
         Self::from(&scalar)
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl From<&Scalar> for Vec<u8> {
     fn from(scalar: &Scalar) -> Vec<u8> {
         scalar.to_bytes_rfc_8032().to_vec()
@@ -437,16 +377,18 @@ impl From<&Scalar> for ScalarBytes {
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<Vec<u8>> for Scalar {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
         Self::try_from(&bytes[..])
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<&Vec<u8>> for Scalar {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(bytes: &Vec<u8>) -> Result<Self, Self::Error> {
         Self::try_from(&bytes[..])
@@ -454,20 +396,21 @@ impl TryFrom<&Vec<u8>> for Scalar {
 }
 
 impl TryFrom<&[u8]> for Scalar {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() != 57 {
-            return Err("invalid byte length".to_string());
+            return Err("invalid byte length");
         }
         let scalar_bytes = ScalarBytes::clone_from_slice(bytes);
         Option::<Scalar>::from(Scalar::from_canonical_bytes(&scalar_bytes))
-            .ok_or_else(|| "scalar was not canonically encoded".to_string())
+            .ok_or("scalar was not canonically encoded")
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<Box<[u8]>> for Scalar {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(bytes: Box<[u8]>) -> Result<Self, Self::Error> {
         Self::try_from(bytes.as_ref())
@@ -475,65 +418,26 @@ impl TryFrom<Box<[u8]>> for Scalar {
 }
 
 #[cfg(feature = "serde")]
-impl serde::Serialize for Scalar {
+impl serdect::serde::Serialize for Scalar {
     fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer,
+        S: serdect::serde::Serializer,
     {
-        use serde::ser::SerializeTuple;
-
-        let bytes = self.to_bytes_rfc_8032();
-        if s.is_human_readable() {
-            hex::encode(bytes).serialize(s)
-        } else {
-            let mut tupler = s.serialize_tuple(bytes.len())?;
-            for i in &bytes {
-                tupler.serialize_element(i)?;
-            }
-            tupler.end()
-        }
+        serdect::slice::serialize_hex_lower_or_bin(&self.to_bytes(), s)
     }
 }
 
 #[cfg(feature = "serde")]
-impl<'de> serde::Deserialize<'de> for Scalar {
+impl<'de> serdect::serde::Deserialize<'de> for Scalar {
     fn deserialize<D>(d: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'de>,
+        D: serdect::serde::Deserializer<'de>,
     {
-        if d.is_human_readable() {
-            let hex_s = String::deserialize(d)?;
-            let bytes =
-                hex::decode(hex_s).map_err(|_| serde::de::Error::custom("invalid hex string"))?;
-            Scalar::try_from(&bytes[..]).map_err(serde::de::Error::custom)
-        } else {
-            use serde::de::{SeqAccess, Visitor};
-
-            struct ScalarVisitor;
-
-            impl<'de> Visitor<'de> for ScalarVisitor {
-                type Value = Scalar;
-
-                fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-                    write!(f, "a sequence of 57 little endian bytes")
-                }
-
-                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                where
-                    A: SeqAccess<'de>,
-                {
-                    let mut scalar = ScalarBytes::default();
-                    for (i, v) in scalar.iter_mut().enumerate() {
-                        *v = seq.next_element()?.ok_or_else(|| {
-                            serde::de::Error::invalid_length(i, &"expected 57 bytes")
-                        })?;
-                    }
-                    Scalar::try_from(&scalar[..]).map_err(serde::de::Error::custom)
-                }
-            }
-
-            d.deserialize_tuple(57, ScalarVisitor)
-        }
+        let mut buffer = ScalarBytes::default();
+        serdect::array::deserialize_hex_or_bin(&mut buffer[..56], d)?;
+        Option::from(Self::from_canonical_bytes(&buffer)).ok_or(serdect::serde::de::Error::custom(
+            "scalar was not canonically encoded",
+        ))
     }
 }
 
@@ -564,12 +468,12 @@ impl FromOkm for Scalar {
     type Length = U84;
 
     fn from_okm(data: &GenericArray<u8, Self::Length>) -> Self {
-        const SEMI_WIDE_MODULUS: U704 = U704::from_be_hex("00000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3");
+        const SEMI_WIDE_MODULUS: NonZero<U704> = NonZero::from_uint(U704::from_be_hex("00000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3"));
         let mut tmp = GenericArray::<u8, U88>::default();
         tmp[4..].copy_from_slice(&data[..]);
 
         let mut num = U704::from_be_slice(&tmp[..]);
-        num = num.wrapping_rem(&SEMI_WIDE_MODULUS);
+        num %= SEMI_WIDE_MODULUS;
         let bytes = <[u8; 56]>::try_from(&num.to_le_bytes()[..56]).unwrap();
         Self::from_bytes(&bytes)
     }
@@ -637,44 +541,45 @@ impl ReduceNonZero<U896> for Scalar {
     }
 }
 
-// impl PrimeFieldBits for Scalar {
-//     type ReprBits = [u32; 14];
-//
-//     fn to_le_bits(&self) -> ScalarBits<Ed448> {
-//         self.0.into()
-//     }
-//
-//     fn char_le_bits() -> ScalarBits<Ed448> {
-//         BASEPOINT_ORDER.0.into()
-//     }
-// }
+impl PrimeFieldBits for Scalar {
+    type ReprBits = [u32; 14];
 
-// impl From<ScalarPrimitive<Ed448>> for Scalar {
-//     fn from(scalar: ScalarPrimitive<Ed448>) -> Self {
-//         let bytes = scalar.as_uint().to_le_bytes();
-//         Self::from_bytes(&bytes)
-//     }
-// }
+    fn to_le_bits(&self) -> FieldBits<Self::ReprBits> {
+        FieldBits::new(self.0)
+    }
 
-// impl From<&ScalarPrimitive<Ed448>> for Scalar {
-//     fn from(scalar: &ScalarPrimitive<Ed448>) -> Self {
-//         let bytes = scalar.as_uint().to_le_bytes();
-//         Self::from_bytes(&bytes)
-//     }
-// }
+    fn char_le_bits() -> FieldBits<Self::ReprBits> {
+        FieldBits::new(MODULUS_LIMBS)
+    }
+}
 
-// impl From<Scalar> for ScalarPrimitive<Ed448> {
-//     fn from(scalar: Scalar) -> Self {
-//         Self::from(&scalar)
-//     }
-// }
+impl From<ScalarPrimitive<Ed448>> for Scalar {
+    fn from(scalar: ScalarPrimitive<Ed448>) -> Self {
+        let bytes = scalar.as_uint().to_le_bytes();
+        Self::from_bytes(&bytes)
+    }
+}
 
-// impl From<&Scalar> for ScalarPrimitive<Ed448> {
-//     fn from(scalar: &Scalar) -> Self {
-//         let uint = U448::from_le_bytes(scalar.to_bytes());
-//         ScalarPrimitive::new(uint).unwrap()
-//     }
-// }
+impl From<&ScalarPrimitive<Ed448>> for Scalar {
+    fn from(scalar: &ScalarPrimitive<Ed448>) -> Self {
+        let uint = *scalar.as_uint();
+        uint.into()
+    }
+}
+
+impl From<Scalar> for ScalarPrimitive<Ed448> {
+    fn from(scalar: Scalar) -> Self {
+        let uint: U448 = scalar.into();
+        Self::from_uint_unchecked(uint)
+    }
+}
+
+impl From<&Scalar> for ScalarPrimitive<Ed448> {
+    fn from(scalar: &Scalar) -> Self {
+        let uint: U448 = scalar.into();
+        ScalarPrimitive::from_uint_unchecked(uint)
+    }
+}
 
 impl From<U448> for Scalar {
     fn from(uint: U448) -> Self {
@@ -729,7 +634,25 @@ impl AsRef<Scalar> for Scalar {
     }
 }
 
-impl DefaultIsZeroes for Scalar {}
+impl Shr<usize> for Scalar {
+    type Output = Self;
+
+    fn shr(self, rhs: usize) -> Self::Output {
+        let mut cp = self;
+        cp.shr_assign(rhs);
+        cp
+    }
+}
+
+impl Shr<usize> for &Scalar {
+    type Output = Scalar;
+
+    fn shr(self, rhs: usize) -> Self::Output {
+        let mut cp = *self;
+        cp.shr_assign(rhs);
+        cp
+    }
+}
 
 impl ShrAssign<usize> for Scalar {
     fn shr_assign(&mut self, shift: usize) {
@@ -740,6 +663,12 @@ impl ShrAssign<usize> for Scalar {
             *limb |= carry << (32 - shift);
             carry = new_carry;
         }
+    }
+}
+
+impl From<&Scalar> for Ed448ScalarBits {
+    fn from(scalar: &Scalar) -> Self {
+        scalar.0.into()
     }
 }
 
@@ -774,7 +703,7 @@ impl Scalar {
     // We start with 14 u32s and convert them to 56 u8s.
     // We then use the code copied from Dalek to convert the 56 u8s to radix-16 and re-center the coefficients to be between [-16,16)
     // XXX: We can recode the scalar without converting it to bytes, will refactor this method to use this and check which is faster.
-    pub(crate) fn to_radix_16(&self) -> [i8; 113] {
+    pub(crate) fn to_radix_16(self) -> [i8; 113] {
         let bytes = self.to_bytes();
         let mut output = [0i8; 113];
 
@@ -804,14 +733,17 @@ impl Scalar {
         output
     }
     // XXX: Better if this method returns an array of 448 items
-    pub fn bits(&self) -> Vec<bool> {
-        let mut bits: Vec<bool> = Vec::with_capacity(14 * 32);
+    /// Returns the bits of the scalar in little-endian order.
+    pub fn bits(&self) -> [bool; 448] {
+        let mut bits = [false; 448];
+        let mut i = 0;
         // We have 14 limbs, each 32 bits
         // First we iterate each limb
         for limb in self.0.iter() {
             // Then we iterate each bit in the limb
             for j in 0..32 {
-                bits.push(limb & (1 << j) != 0)
+                bits[i] = limb & (1 << j) != 0;
+                i += 1;
             }
         }
 
@@ -1331,6 +1263,7 @@ mod test {
         assert_eq!(&bytes[..], &candidate[..]);
     }
 
+    #[cfg(all(any(feature = "alloc", feature = "std"), feature = "serde"))]
     #[test]
     fn serde() {
         let res = serde_json::to_string(&Scalar::TWO_INV);

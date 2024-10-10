@@ -49,7 +49,7 @@ impl ProjectiveNielsPoint {
         ExtensiblePoint::IDENTITY.to_projective_niels()
     }
 
-    pub fn to_extended(&self) -> ExtendedPoint {
+    pub fn to_extended(self) -> ExtendedPoint {
         let A = self.Y_plus_X - self.Y_minus_X;
         let B = self.Y_plus_X + self.Y_minus_X;
         ExtendedPoint {

@@ -3,9 +3,8 @@
 use crate::constants::DECAF_BASEPOINT;
 use crate::curve::twedwards::extended::ExtendedPoint;
 use crate::field::FieldElement;
-use alloc::boxed::Box;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
+use crate::*;
+
 use core::fmt::{Display, Formatter, Result as FmtResult};
 use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption};
 
@@ -62,45 +61,52 @@ impl From<&DecafPoint> for DecafPointBytes {
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl From<DecafPoint> for Vec<u8> {
     fn from(compressed: DecafPoint) -> Vec<u8> {
         Self::from(&compressed)
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl From<&DecafPoint> for Vec<u8> {
     fn from(point: &DecafPoint) -> Vec<u8> {
         point.compress().0.to_vec()
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<Vec<u8>> for DecafPoint {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
         Self::try_from(bytes.as_slice())
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<&Vec<u8>> for DecafPoint {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(bytes: &Vec<u8>) -> Result<Self, Self::Error> {
         Self::try_from(bytes.as_slice())
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<&[u8]> for DecafPoint {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        let compressed = <DecafPointBytes>::try_from(bytes).map_err(|e| e.to_string())?;
+        let compressed =
+            <DecafPointBytes>::try_from(bytes).map_err(|_| "bytes is not the correct length")?;
         Self::try_from(compressed)
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<Box<[u8]>> for DecafPoint {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(bytes: Box<[u8]>) -> Result<Self, Self::Error> {
         Self::try_from(bytes.as_ref())
@@ -108,17 +114,16 @@ impl TryFrom<Box<[u8]>> for DecafPoint {
 }
 
 impl TryFrom<DecafPointBytes> for DecafPoint {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(bytes: DecafPointBytes) -> Result<Self, Self::Error> {
         let pt = CompressedDecaf(bytes);
-        Option::<DecafPoint>::from(pt.decompress())
-            .ok_or_else(|| "Invalid point encoding".to_string())
+        Option::<DecafPoint>::from(pt.decompress()).ok_or("Invalid point encoding")
     }
 }
 
 impl TryFrom<&DecafPointBytes> for DecafPoint {
-    type Error = String;
+    type Error = &'static str;
 
     fn try_from(bytes: &DecafPointBytes) -> Result<Self, Self::Error> {
         Self::try_from(*bytes)
@@ -166,6 +171,7 @@ impl DecafPoint {
 
 /// A compressed decaf point
 #[derive(Copy, Clone, Debug)]
+#[repr(transparent)]
 pub struct CompressedDecaf(pub DecafPointBytes);
 
 impl Default for CompressedDecaf {
@@ -183,8 +189,8 @@ impl ConstantTimeEq for CompressedDecaf {
 impl ConditionallySelectable for CompressedDecaf {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         let mut bytes = [0u8; 56];
-        for i in 0..bytes.len() {
-            bytes[i] = u8::conditional_select(&a.0[i], &b.0[i], choice);
+        for (i, byte) in bytes.iter_mut().enumerate() {
+            *byte = u8::conditional_select(&a.0[i], &b.0[i], choice);
         }
         Self(bytes)
     }
@@ -210,18 +216,21 @@ impl From<&CompressedDecaf> for DecafPointBytes {
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl From<CompressedDecaf> for Vec<u8> {
     fn from(compressed: CompressedDecaf) -> Vec<u8> {
         Self::from(&compressed)
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl From<&CompressedDecaf> for Vec<u8> {
     fn from(compressed: &CompressedDecaf) -> Vec<u8> {
         compressed.0.to_vec()
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<Vec<u8>> for CompressedDecaf {
     type Error = String;
 
@@ -230,6 +239,7 @@ impl TryFrom<Vec<u8>> for CompressedDecaf {
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<&Vec<u8>> for CompressedDecaf {
     type Error = String;
 
@@ -238,6 +248,7 @@ impl TryFrom<&Vec<u8>> for CompressedDecaf {
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<&[u8]> for CompressedDecaf {
     type Error = String;
 
@@ -247,6 +258,7 @@ impl TryFrom<&[u8]> for CompressedDecaf {
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<Box<[u8]>> for CompressedDecaf {
     type Error = String;
 
@@ -275,60 +287,21 @@ impl TryFrom<&DecafPointBytes> for CompressedDecaf {
 }
 
 #[cfg(feature = "serde")]
-impl serde::Serialize for CompressedDecaf {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        if s.is_human_readable() {
-            hex::encode(self.0).serialize(s)
-        } else {
-            use serde::ser::SerializeTuple;
-
-            let mut tup = s.serialize_tuple(self.0.len())?;
-            for b in self.0.iter() {
-                tup.serialize_element(b)?;
-            }
-            tup.end()
-        }
+impl serdect::serde::Serialize for CompressedDecaf {
+    fn serialize<S: serdect::serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        serdect::slice::serialize_hex_lower_or_bin(&self.0, s)
     }
 }
 
 #[cfg(feature = "serde")]
-impl<'de> serde::Deserialize<'de> for CompressedDecaf {
+impl<'de> serdect::serde::Deserialize<'de> for CompressedDecaf {
     fn deserialize<D>(d: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'de>,
+        D: serdect::serde::Deserializer<'de>,
     {
-        if d.is_human_readable() {
-            let s = String::deserialize(d)?;
-            let bytes = hex::decode(s).map_err(serde::de::Error::custom)?;
-            Self::try_from(bytes).map_err(serde::de::Error::custom)
-        } else {
-            use serde::de::SeqAccess;
-
-            struct CompressedDecafVisitor;
-
-            impl<'de> serde::de::Visitor<'de> for CompressedDecafVisitor {
-                type Value = CompressedDecaf;
-
-                fn expecting(&self, f: &mut Formatter) -> FmtResult {
-                    write!(f, "a sequence of 56 bytes")
-                }
-
-                fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-                where
-                    A: SeqAccess<'de>,
-                {
-                    let mut bytes = [0u8; 56];
-                    for i in 0..bytes.len() {
-                        bytes[i] = seq
-                            .next_element()?
-                            .ok_or_else(|| serde::de::Error::invalid_length(i, &"56"))?;
-                    }
-                    Self::Value::try_from(bytes).map_err(serde::de::Error::custom)
-                }
-            }
-
-            d.deserialize_tuple(56, CompressedDecafVisitor)
-        }
+        let mut bytes = [0u8; 56];
+        serdect::array::deserialize_hex_or_bin(&mut bytes, d)?;
+        Self::try_from(bytes).map_err(serdect::serde::de::Error::custom)
     }
 }
 

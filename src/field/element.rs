@@ -1,68 +1,45 @@
-mod scalar;
+use core::fmt::{self, Debug, Display, Formatter, LowerHex, UpperHex};
+use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
-pub use scalar::{Scalar, ScalarBytes, WideScalarBytes};
-
-use crate::curve::edwards::affine::AffinePoint;
-use crate::curve::edwards::EdwardsPoint;
-use crate::curve::twedwards::extended::ExtendedPoint as TwExtendedPoint;
-
-use core::{
-    fmt::{Debug, Display, Formatter, LowerHex, Result as FmtResult, UpperHex},
-    ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
-};
-use elliptic_curve::hash2curve::MapToCurve;
 use elliptic_curve::{
-    bigint::{impl_modulus, modular::constant_mod::*, Encoding, U448, U704},
-    generic_array::{
-        typenum::{U84, U88},
-        GenericArray,
+    bigint::{
+        consts::{U84, U88},
+        Encoding, NonZero, U448, U704,
     },
-    hash2curve::FromOkm,
+    generic_array::GenericArray,
+    hash2curve::{FromOkm, MapToCurve},
 };
 use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq};
+
 #[cfg(feature = "zeroize")]
 use zeroize::DefaultIsZeroes;
 
-pub const GOLDILOCKS_BASE_POINT: EdwardsPoint = EdwardsPoint {
-    X: FieldElement(ResidueType::new(&U448::from_be_hex("4f1970c66bed0ded221d15a622bf36da9e146570470f1767ea6de324a3d3a46412ae1af72ab66511433b80e18b00938e2626a82bc70cc05e"))),
-    Y: FieldElement(ResidueType::new(&U448::from_be_hex("693f46716eb6bc248876203756c9c7624bea73736ca3984087789c1e05a0c2d73ad3ff1ce67c39c4fdbd132c4ed7c8ad9808795bf230fa14"))),
-    Z: FieldElement::ONE,
-    T: FieldElement(ResidueType::new(&U448::from_be_hex("c75eb58aee221c6ccec39d2d508d91c9c5056a183f8451d260d71667e2356d58f179de90b5b27da1f78fa07d85662d1deb06624e82af95f3"))),
-};
-
-pub const TWISTED_EDWARDS_BASE_POINT: TwExtendedPoint = TwExtendedPoint {
-    X: FieldElement(ResidueType::new(&U448::from_be_hex("7ffffffffffffffffffffffffffffffffffffffffffffffffffffffe80000000000000000000000000000000000000000000000000000000"))),
-    Y: FieldElement(ResidueType::new(&U448::from_be_hex("8508de14f04286d48d06c13078ca240805264370504c74c393d5242c5045271414181844d73f48e5199b0c1e3ab470a1c86079b4dfdd4a64"))),
-    Z: FieldElement::ONE,
-    T: FieldElement(ResidueType::new(&U448::from_be_hex("6d3669e173c6a450e23d5682a9ffe1ddc2b86da60f794be956382384a319b57519c9854dde98e342140362071833f4e093e3c816dc198105"))),
-};
-
-impl_modulus!(MODULUS, U448, "fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-type ResidueType = Residue<MODULUS, { MODULUS::LIMBS }>;
+use super::ResidueType;
+use crate::{AffinePoint, EdwardsPoint};
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct FieldElement(pub(crate) ResidueType);
 
 impl Display for FieldElement {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{:x}", self.0.retrieve())
     }
 }
 
 impl Debug for FieldElement {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "FieldElement({:x})", self.0.retrieve())
     }
 }
 
 impl LowerHex for FieldElement {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{:x}", self.0.retrieve())
     }
 }
 
 impl UpperHex for FieldElement {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{:X}", self.0.retrieve())
     }
 }
@@ -90,12 +67,13 @@ impl FromOkm for FieldElement {
     type Length = U84;
 
     fn from_okm(data: &GenericArray<u8, Self::Length>) -> Self {
-        const SEMI_WIDE_MODULUS: U704 = U704::from_be_hex("0000000000000000000000000000000000000000000000000000000000000000fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        const SEMI_WIDE_MODULUS: NonZero<U704> = NonZero::from_uint(U704::from_be_hex("0000000000000000000000000000000000000000000000000000000000000000fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffffffff"));
         let mut tmp = GenericArray::<u8, U88>::default();
         tmp[4..].copy_from_slice(&data[..]);
 
         let mut num = U704::from_be_slice(&tmp[..]);
-        num = num.wrapping_rem(&SEMI_WIDE_MODULUS);
+        num %= SEMI_WIDE_MODULUS;
+
         let bytes = <[u8; 56]>::try_from(&num.to_le_bytes()[..56]).unwrap();
         FieldElement(ResidueType::new(&U448::from_le_slice(&bytes)))
     }
@@ -108,33 +86,15 @@ impl Add<&FieldElement> for &FieldElement {
     type Output = FieldElement;
 
     fn add(self, other: &FieldElement) -> FieldElement {
-        *self + *other
+        FieldElement(self.0.add(&other.0))
     }
 }
 
-impl Add<FieldElement> for &FieldElement {
-    type Output = FieldElement;
-
-    fn add(self, other: FieldElement) -> FieldElement {
-        *self + other
-    }
-}
-
-impl Add<&FieldElement> for FieldElement {
-    type Output = FieldElement;
-
-    fn add(self, other: &FieldElement) -> FieldElement {
-        self + *other
-    }
-}
-
-impl Add for FieldElement {
-    type Output = FieldElement;
-
-    fn add(self, other: FieldElement) -> FieldElement {
-        Self(self.0.add(&other.0))
-    }
-}
+define_add_variants!(
+    LHS = FieldElement,
+    RHS = FieldElement,
+    Output = FieldElement
+);
 
 impl AddAssign for FieldElement {
     fn add_assign(&mut self, other: FieldElement) {
@@ -152,33 +112,15 @@ impl Sub<&FieldElement> for &FieldElement {
     type Output = FieldElement;
 
     fn sub(self, other: &FieldElement) -> FieldElement {
-        *self - *other
+        FieldElement(self.0.sub(&other.0))
     }
 }
 
-impl Sub<FieldElement> for &FieldElement {
-    type Output = FieldElement;
-
-    fn sub(self, other: FieldElement) -> FieldElement {
-        *self - other
-    }
-}
-
-impl Sub<&FieldElement> for FieldElement {
-    type Output = FieldElement;
-
-    fn sub(self, other: &FieldElement) -> FieldElement {
-        self - *other
-    }
-}
-
-impl Sub for FieldElement {
-    type Output = FieldElement;
-
-    fn sub(self, other: FieldElement) -> FieldElement {
-        Self(self.0.sub(&other.0))
-    }
-}
+define_sub_variants!(
+    LHS = FieldElement,
+    RHS = FieldElement,
+    Output = FieldElement
+);
 
 impl SubAssign for FieldElement {
     fn sub_assign(&mut self, other: FieldElement) {
@@ -196,33 +138,15 @@ impl Mul<&FieldElement> for &FieldElement {
     type Output = FieldElement;
 
     fn mul(self, other: &FieldElement) -> FieldElement {
-        *self * *other
+        FieldElement(self.0.mul(&other.0))
     }
 }
 
-impl Mul<FieldElement> for &FieldElement {
-    type Output = FieldElement;
-
-    fn mul(self, other: FieldElement) -> FieldElement {
-        *self * other
-    }
-}
-
-impl Mul<&FieldElement> for FieldElement {
-    type Output = FieldElement;
-
-    fn mul(self, other: &FieldElement) -> FieldElement {
-        self * *other
-    }
-}
-
-impl Mul for FieldElement {
-    type Output = FieldElement;
-
-    fn mul(self, other: FieldElement) -> FieldElement {
-        Self(self.0.mul(&other.0))
-    }
-}
+define_mul_variants!(
+    LHS = FieldElement,
+    RHS = FieldElement,
+    Output = FieldElement
+);
 
 impl MulAssign<&FieldElement> for FieldElement {
     fn mul_assign(&mut self, other: &FieldElement) {
@@ -314,7 +238,7 @@ impl FieldElement {
         Self(self.0.pow(&SQRT_EXP))
     }
 
-    pub fn to_bytes(&self) -> [u8; 56] {
+    pub fn to_bytes(self) -> [u8; 56] {
         let mut bytes = [0u8; 56];
         bytes.copy_from_slice(&self.0.retrieve().to_le_bytes()[..56]);
         bytes

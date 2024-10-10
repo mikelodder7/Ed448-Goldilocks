@@ -79,7 +79,7 @@ impl ExtendedPoint {
     }
 
     /// Converts an ExtendedPoint to an ExtensiblePoint
-    pub fn to_extensible(&self) -> ExtensiblePoint {
+    pub fn to_extensible(self) -> ExtensiblePoint {
         ExtensiblePoint {
             X: self.X,
             Y: self.Y,
@@ -90,7 +90,7 @@ impl ExtendedPoint {
     }
 
     /// Converts an extended point to Affine co-ordinates
-    pub(crate) fn to_affine(&self) -> AffinePoint {
+    pub(crate) fn to_affine(self) -> AffinePoint {
         // Points to consider:
         // - All points where Z=0, translate to (0,0)
         // - The identity point has z=1, so it is not a problem
@@ -131,7 +131,7 @@ impl ExtendedPoint {
         }
     }
     /// Uses a 2-isogeny to map the point to the Ed448-Goldilocks
-    pub fn to_untwisted(&self) -> EdwardsExtendedPoint {
+    pub fn to_untwisted(self) -> EdwardsExtendedPoint {
         self.edwards_isogeny(FieldElement::MINUS_ONE)
     }
 

@@ -116,7 +116,7 @@ impl AffineNielsPoint {
         td: FieldElement::ZERO,
     };
     /// Converts an AffineNielsPoint to an ExtendedPoint
-    pub(crate) fn to_extended(&self) -> ExtendedPoint {
+    pub(crate) fn to_extended(self) -> ExtendedPoint {
         ExtendedPoint {
             X: self.y_plus_x - self.y_minus_x,
             Y: self.y_minus_x + self.y_plus_x,

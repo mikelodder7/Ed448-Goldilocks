@@ -1,18 +1,21 @@
 #![allow(non_snake_case)]
 
 use crate::curve::twedwards::extended::ExtendedPoint;
-use core::fmt;
 use subtle::{Choice, ConstantTimeEq};
 
+/// The bytes representation of a compressed point.
+pub type RistrettoPointBytes = [u8; 56];
+
 #[derive(Copy, Clone, Debug)]
-pub struct RistrettoPoint(ExtendedPoint);
+pub struct RistrettoPoint(pub(crate) ExtendedPoint);
 
-#[derive(Copy, Clone)]
-pub struct CompressedRistretto([u8; 56]);
+#[derive(Copy, Clone, Debug)]
+#[repr(transparent)]
+pub struct CompressedRistretto(pub RistrettoPointBytes);
 
-impl fmt::Debug for CompressedRistretto {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        self.0[..].fmt(formatter)
+impl Default for CompressedRistretto {
+    fn default() -> Self {
+        Self::IDENTITY
     }
 }
 
@@ -27,16 +30,22 @@ impl PartialEq for CompressedRistretto {
         self.ct_eq(other).into()
     }
 }
+
 impl Eq for CompressedRistretto {}
 
 impl CompressedRistretto {
+    pub const IDENTITY: Self = Self([0u8; 56]);
+
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 }
 
 impl RistrettoPoint {
+    /// The identity element of the group: the point at infinity.
     pub const IDENTITY: RistrettoPoint = RistrettoPoint(ExtendedPoint::IDENTITY);
+    /// The generator of the Ristretto group.
+    pub const GENERATOR: RistrettoPoint = RistrettoPoint(ExtendedPoint::GENERATOR);
 
     pub fn equals(&self, other: &RistrettoPoint) -> bool {
         let XY = self.0.X * other.0.Y;
