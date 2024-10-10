@@ -1,11 +1,15 @@
-#![allow(non_snake_case)]
-
 use crate::constants::DECAF_BASEPOINT;
 use crate::curve::twedwards::extended::ExtendedPoint;
 use crate::field::FieldElement;
 use crate::*;
 
+use elliptic_curve::{
+    generic_array::{typenum::U84, GenericArray},
+    hash2curve::{ExpandMsg, Expander, FromOkm},
+};
+
 use core::fmt::{Display, Formatter, Result as FmtResult};
+use rand_core::CryptoRngCore;
 use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption};
 
 /// The bytes representation of a compressed point
@@ -13,6 +17,12 @@ pub type DecafPointBytes = [u8; 56];
 
 #[derive(Copy, Clone, Debug)]
 pub struct DecafPoint(pub(crate) ExtendedPoint);
+
+impl Default for DecafPoint {
+    fn default() -> Self {
+        Self::IDENTITY
+    }
+}
 
 impl Display for DecafPoint {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
@@ -137,6 +147,11 @@ impl DecafPoint {
     /// The generator point
     pub const GENERATOR: DecafPoint = DECAF_BASEPOINT;
 
+    /// Check if the point is the identity
+    pub fn is_identity(&self) -> Choice {
+        self.ct_eq(&DecafPoint::IDENTITY)
+    }
+
     /// Add two points
     pub fn add(&self, other: &DecafPoint) -> DecafPoint {
         DecafPoint(self.0.to_extensible().add_extended(&other.0).to_extended())
@@ -166,6 +181,112 @@ impl DecafPoint {
         s.conditional_negate(s.is_negative());
 
         CompressedDecaf(s.to_bytes())
+    }
+
+    /// Return a `DecafPoint` chosen uniformly at random using a user-provided RNG.
+    ///
+    /// Uses the Decaf448 map, so that the discrete log
+    /// of the output point with respect to any other point
+    /// is unknown.
+    pub fn random(mut rng: impl CryptoRngCore) -> Self {
+        let mut uniform_bytes = [0u8; 112];
+        rng.fill_bytes(&mut uniform_bytes);
+        Self::from_uniform_bytes(&uniform_bytes)
+    }
+
+    /// Construct a `DecafPoint` using `ExpandMsg`.
+    ///
+    /// This function is similar to `hash_to_curve` in the IETF draft
+    /// where an expand_message function can be chosen and a domain
+    /// separation tag.
+    pub fn hash<X>(msg: &[u8], dst: &[u8]) -> Self
+    where
+        X: for<'a> ExpandMsg<'a>,
+    {
+        let dst = [dst];
+        let mut random_bytes = GenericArray::<u8, U84>::default();
+        let mut expander = X::expand_message(&[msg], &dst, random_bytes.len() * 2).unwrap();
+        expander.fill_bytes(&mut random_bytes);
+        let u0 = FieldElement::from_okm(&random_bytes);
+        expander.fill_bytes(&mut random_bytes);
+        let u1 = FieldElement::from_okm(&random_bytes);
+
+        let q0 = u0.map_to_curve_decaf448();
+        let q1 = u1.map_to_curve_decaf448();
+        Self(q0.add(&q1))
+    }
+
+    /// Construct a `DecafPoint` from 112 bytes of data.
+    ///
+    /// If the input bytes are uniformly distributed, the resulting
+    /// point will be uniformly distributed over the group, and its
+    /// discrete log with respect to other points is unknown.
+    ///
+    /// Implements map to curve according
+    /// see <https://datatracker.ietf.org/doc/rfc9380/>
+    /// section 5.3.4 by splitting the input into two 56-byte halves,
+    /// then applies the decaf448_map to each, and adds the results.
+    pub fn from_uniform_bytes(bytes: &[u8; 112]) -> Self {
+        let lo: [u8; 56] = (&bytes[..56])
+            .try_into()
+            .expect("how does the slice have an incorrect length");
+        let hi: [u8; 56] = (&bytes[56..])
+            .try_into()
+            .expect("how does the slice have an incorrect length");
+
+        let u0 = FieldElement::from_bytes(&lo);
+        let u1 = FieldElement::from_bytes(&hi);
+        let q0 = u0.map_to_curve_decaf448();
+        let q1 = u1.map_to_curve_decaf448();
+        Self(q0.add(&q1))
+    }
+
+    /// Compute pippenger multi-exponentiation.
+    /// Pippenger relies on scalars in canonical form
+    /// This uses a fixed window of 4 to be constant time
+    pub fn sum_of_products_pippenger(points: &[Self], scalars: &[Scalar]) -> Self {
+        const UPPER: usize = 256;
+        const W: usize = 4;
+        const WINDOWS: usize = UPPER / W; // careful--use ceiling division in case this doesn't divide evenly
+        const BUCKET_SIZE: usize = 1 << W;
+        const EDGE: usize = BUCKET_SIZE - 1;
+
+        let num_components = core::cmp::min(points.len(), scalars.len());
+
+        let mut windows = [Self::IDENTITY; WINDOWS];
+        let bytes = scalars.iter().map(Scalar::to_bytes).collect::<Vec<_>>();
+
+        for j in 0..WINDOWS {
+            let mut buckets = [Self::IDENTITY; BUCKET_SIZE];
+
+            for i in 0..num_components {
+                // j*W to get the nibble
+                // >> 3 to convert to byte, / 8
+                // (W * j & W) gets the nibble, mod W
+                // 1 << W - 1 to get the offset
+                let index = (bytes[i][(j * W) >> 3] >> ((W * j) & W)) as usize & EDGE; // little-endian
+                buckets[index] += points[i];
+            }
+
+            let mut sum = Self::IDENTITY;
+
+            let mut i = BUCKET_SIZE - 1;
+            while i > 0 {
+                sum += buckets[i];
+                windows[j] += sum;
+                i -= 1;
+            }
+        }
+
+        let mut p = Self::IDENTITY;
+        for i in (0..WINDOWS).rev() {
+            for _ in 0..W {
+                p = p.add(&p);
+            }
+
+            p += windows[i];
+        }
+        p
     }
 }
 
@@ -512,5 +633,16 @@ mod test {
         assert_eq!(all_ones.decompress().is_none().unwrap_u8(), 1u8);
         let all_twos = CompressedDecaf([2u8; 56]);
         assert_eq!(all_twos.decompress().is_none().unwrap_u8(), 1u8);
+    }
+
+    #[test]
+    fn test_hash_to_curve() {
+        use elliptic_curve::hash2curve::ExpandMsgXof;
+
+        let msg = b"Hello, world!";
+        let point = DecafPoint::hash::<ExpandMsgXof<sha3::Shake256>>(msg, b"test_hash_to_curve");
+        assert_eq!(point.0.is_on_curve().unwrap_u8(), 1u8);
+        assert_ne!(point, DecafPoint::IDENTITY);
+        assert_ne!(point, DecafPoint::GENERATOR);
     }
 }

@@ -1,7 +1,7 @@
 [package]
-name = "ed448-goldilocks-plus"
-version = "0.11.2"
 authors = ["Kevaundray Wedderburn <kevtheappdev@gmail.com>", "Michael Lodder <redmike7@gmail.com>"]
+name = "ed448-goldilocks-plus"
+version = "0.12.0"
 edition = "2021"
 readme = "README.md"
 license = "BSD-3-Clause"
@@ -14,23 +14,19 @@ description = "A pure-Rust implementation of Ed448 and Curve448 and Decaf"
 exclude = [".gitignore", ".github/*"]
 
 [dependencies]
+crypto-bigint = { version = "0.5", features = ["generic-array"] }
 elliptic-curve = { version = "0.13", features = ["arithmetic", "bits", "hash2curve", "hazmat", "jwk", "pkcs8", "pem", "sec1"] }
-hex = { version = "0.4", optional = true }
-subtle = { version = "2.5", default-features = false }
+subtle = { version = "2.6", default-features = false }
 rand_core = { version = "0.6", default-features = false }
-serde = { version = "1.0", optional = true }
+serdect = { version = "0.3.0-rc.0", optional = true }
 sha3 = { version = "0.10", default-features = false }
-
-[dependencies.zeroize]
-version = "1"
-default-features = false
-features = ["zeroize_derive"]
-optional = true
+zeroize = { version = "1.8", default-features = false, optional = true }
 
 [features]
 default = ["std"]
-std = ["dep:zeroize", "serde"]
-serde = ["dep:serde", "hex"]
+std = ["serdect/default", "zeroize/default"]
+alloc = ["serdect/alloc", "zeroize/alloc"]
+serde = ["dep:serdect"]
 zeroize = ["dep:zeroize"]
 
 [dev-dependencies]

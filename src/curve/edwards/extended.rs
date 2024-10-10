@@ -10,21 +10,17 @@ use crate::curve::scalar_mul::variable_base;
 use crate::curve::twedwards::extended::ExtendedPoint as TwistedExtendedPoint;
 use crate::field::{FieldElement, Scalar};
 use crate::*;
-use elliptic_curve::group::cofactor::CofactorGroup;
-use elliptic_curve::group::prime::PrimeGroup;
-use elliptic_curve::group::Curve;
-use elliptic_curve::hash2curve::{ExpandMsg, ExpandMsgXof, Expander, FromOkm};
-use elliptic_curve::ops::{LinearCombination, MulByGenerator};
 use elliptic_curve::{
     generic_array::{
         typenum::{U57, U84},
         GenericArray,
     },
-    group::{Group, GroupEncoding},
+    group::{cofactor::CofactorGroup, prime::PrimeGroup, Curve, Group, GroupEncoding},
+    hash2curve::{ExpandMsg, ExpandMsgXof, Expander, FromOkm},
+    ops::{LinearCombination, MulByGenerator},
 };
 use rand_core::RngCore;
 use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption};
-use zeroize::DefaultIsZeroes;
 
 /// The default hash to curve domain separation tag
 pub const DEFAULT_HASH_TO_CURVE_SUITE: &[u8] = b"edwards448_XOF:SHAKE256_ELL2_RO_";
@@ -732,11 +728,15 @@ impl EdwardsPoint {
         (self * BASEPOINT_ORDER).ct_eq(&Self::IDENTITY)
     }
 
+    /// Hash a message to a point on the curve
+    ///
     /// Hash using the default domain separation tag and hash function
     pub fn hash_with_defaults(msg: &[u8]) -> Self {
         Self::hash::<ExpandMsgXof<sha3::Shake256>>(msg, DEFAULT_HASH_TO_CURVE_SUITE)
     }
 
+    /// Hash a message to a point on the curve
+    ///
     /// Implements hash to curve according
     /// see <https://datatracker.ietf.org/doc/rfc9380/>
     pub fn hash<X>(msg: &[u8], dst: &[u8]) -> Self
@@ -758,11 +758,15 @@ impl EdwardsPoint {
         (q0.to_edwards() + q1.to_edwards()).double().double()
     }
 
+    /// Encode a message to a point on the curve
+    ///
     /// Encode using the default domain separation tag and hash function
     pub fn encode_with_defaults(msg: &[u8]) -> Self {
         Self::encode::<ExpandMsgXof<sha3::Shake256>>(msg, DEFAULT_ENCODE_TO_CURVE_SUITE)
     }
 
+    /// Encode a message to a point on the curve
+    ///
     /// Implements encode to curve according
     /// see <https://datatracker.ietf.org/doc/rfc9380/>
     pub fn encode<X>(msg: &[u8], dst: &[u8]) -> Self
@@ -1027,7 +1031,8 @@ impl<'de> serdect::serde::Deserialize<'de> for EdwardsPoint {
     }
 }
 
-impl DefaultIsZeroes for EdwardsPoint {}
+#[cfg(feature = "zeroize")]
+impl zeroize::DefaultIsZeroes for EdwardsPoint {}
 
 #[cfg(test)]
 mod tests {
