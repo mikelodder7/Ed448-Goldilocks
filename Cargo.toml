@@ -1,13 +1,13 @@
 [package]
 authors = ["Kevaundray Wedderburn <kevtheappdev@gmail.com>", "Michael Lodder <redmike7@gmail.com>"]
 name = "ed448-goldilocks-plus"
-version = "0.12.0"
+version = "0.12.1"
 edition = "2021"
 readme = "README.md"
 license = "BSD-3-Clause"
 repository = "https://github.com/mikelodder7/Ed448-Goldilocks"
 homepage = "https://github.com/mikelodder7/Ed448-Goldilocks"
-documentation = "https://github.com/mikelodder7/Ed448-Goldilocks"
+documentation = "https://docs.rs/Ed448-Goldilocks"
 categories = ["cryptography"]
 keywords = ["cryptography", "crypto", "decaf", "ed448", "ed448-goldilocks"]
 description = "A pure-Rust implementation of Ed448 and Curve448 and Decaf"
@@ -32,6 +32,8 @@ zeroize = ["dep:zeroize"]
 [dev-dependencies]
 hex-literal = "0.4"
 hex = "0.4"
+elliptic-curve-tools = "0.1.2"
 rand_core = { version = "0.6", features = ["std"] }
+rand_chacha = "0.3"
 serde_bare = "0.5"
 serde_json = "1.0"

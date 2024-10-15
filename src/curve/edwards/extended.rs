@@ -783,54 +783,6 @@ impl EdwardsPoint {
 
         q0.to_edwards().double().double()
     }
-
-    /// Compute pippenger multi-exponentiation.
-    /// Pippenger relies on scalars in canonical form
-    /// This uses a fixed window of 4 to be constant time
-    pub fn sum_of_products_pippenger(points: &[Self], scalars: &[Scalar]) -> Self {
-        const UPPER: usize = 256;
-        const W: usize = 4;
-        const WINDOWS: usize = UPPER / W; // careful--use ceiling division in case this doesn't divide evenly
-        const BUCKET_SIZE: usize = 1 << W;
-        const EDGE: usize = BUCKET_SIZE - 1;
-
-        let num_components = core::cmp::min(points.len(), scalars.len());
-
-        let mut windows = [Self::IDENTITY; WINDOWS];
-        let bytes = scalars.iter().map(Scalar::to_bytes).collect::<Vec<_>>();
-
-        for j in 0..WINDOWS {
-            let mut buckets = [Self::IDENTITY; BUCKET_SIZE];
-
-            for i in 0..num_components {
-                // j*W to get the nibble
-                // >> 3 to convert to byte, / 8
-                // (W * j & W) gets the nibble, mod W
-                // 1 << W - 1 to get the offset
-                let index = (bytes[i][(j * W) >> 3] >> ((W * j) & W)) as usize & EDGE; // little-endian
-                buckets[index] += points[i];
-            }
-
-            let mut sum = Self::IDENTITY;
-
-            let mut i = BUCKET_SIZE - 1;
-            while i > 0 {
-                sum += buckets[i];
-                windows[j] += sum;
-                i -= 1;
-            }
-        }
-
-        let mut p = Self::IDENTITY;
-        for i in (0..WINDOWS).rev() {
-            for _ in 0..W {
-                p = p.double();
-            }
-
-            p += windows[i];
-        }
-        p
-    }
 }
 
 // ------------------------------------------------------------------------
@@ -1202,23 +1154,50 @@ mod tests {
 
     #[test]
     fn test_sum_of_products() {
-        let scalars = [
-            Scalar::from(8u8),
-            Scalar::from(9u8),
-            Scalar::from(10u8),
-            Scalar::from(11u8),
-            Scalar::from(12u8),
-        ];
-        let points = [
-            EdwardsPoint::GENERATOR,
-            EdwardsPoint::GENERATOR,
-            EdwardsPoint::GENERATOR,
-            EdwardsPoint::GENERATOR,
-            EdwardsPoint::GENERATOR,
+        use elliptic_curve_tools::SumOfProducts;
+        let values = [
+            (Scalar::from(8u8), EdwardsPoint::GENERATOR),
+            (Scalar::from(9u8), EdwardsPoint::GENERATOR),
+            (Scalar::from(10u8), EdwardsPoint::GENERATOR),
+            (Scalar::from(11u8), EdwardsPoint::GENERATOR),
+            (Scalar::from(12u8), EdwardsPoint::GENERATOR),
         ];
 
         let expected = EdwardsPoint::GENERATOR * Scalar::from(50u8);
-        let result = EdwardsPoint::sum_of_products_pippenger(&points, &scalars);
+        let result = EdwardsPoint::sum_of_products(&values);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_sum_of_products2() {
+        use elliptic_curve_tools::SumOfProducts;
+        use rand_core::SeedableRng;
+
+        const TESTS: usize = 5;
+        const CHUNKS: usize = 10;
+        let mut rng = rand_chacha::ChaCha8Rng::from_seed([3u8; 32]);
+
+        for _ in 0..TESTS {
+            let scalars = (0..CHUNKS)
+                .map(|_| Scalar::random(&mut rng))
+                .collect::<Vec<_>>();
+            let points = (0..CHUNKS)
+                .map(|_| EdwardsPoint::random(&mut rng))
+                .collect::<Vec<_>>();
+
+            let input = scalars
+                .iter()
+                .zip(points.iter())
+                .map(|(&s, &p)| (s, p))
+                .collect::<Vec<_>>();
+            let rhs = EdwardsPoint::sum_of_products(&input);
+
+            let expected = points
+                .iter()
+                .zip(scalars.iter())
+                .fold(EdwardsPoint::IDENTITY, |acc, (&p, &s)| acc + (p * s));
+
+            assert_eq!(rhs, expected);
+        }
     }
 }
