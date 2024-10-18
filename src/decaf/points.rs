@@ -216,15 +216,15 @@ impl CofactorGroup for DecafPoint {
     type Subgroup = DecafPoint;
 
     fn clear_cofactor(&self) -> Self::Subgroup {
-        *self
+        self.double().double()
     }
 
     fn into_subgroup(self) -> CtOption<Self::Subgroup> {
-        CtOption::new(self, 1.into())
+        CtOption::new(self.clear_cofactor(), self.is_torsion_free())
     }
 
     fn is_torsion_free(&self) -> Choice {
-        1.into()
+        (self * Self::GENERATOR).ct_eq(Self::IDENTITY)
     }
 }
 
