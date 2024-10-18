@@ -4,16 +4,24 @@ use crate::field::FieldElement;
 use crate::*;
 
 use elliptic_curve::{
-    generic_array::{typenum::U84, GenericArray},
+    generic_array::{
+        typenum::{U56, U84},
+        GenericArray,
+    },
+    group::{cofactor::CofactorGroup, prime::PrimeGroup, Curve, GroupEncoding},
     hash2curve::{ExpandMsg, Expander, FromOkm},
+    ops::{LinearCombination, MulByGenerator},
+    Group,
 };
 
-use core::fmt::{Display, Formatter, Result as FmtResult};
-use rand_core::CryptoRngCore;
+use core::fmt::{Display, Formatter, LowerHex, Result as FmtResult, UpperHex};
+use rand_core::{CryptoRngCore, RngCore};
 use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption};
 
 /// The bytes representation of a compressed point
 pub type DecafPointBytes = [u8; 56];
+/// The group bytes representation
+pub type DecafPointRepr = GenericArray<u8, U56>;
 
 #[derive(Copy, Clone, Debug)]
 pub struct DecafPoint(pub(crate) ExtendedPoint);
@@ -29,6 +37,26 @@ impl Display for DecafPoint {
         write!(
             f,
             "{{ X: {}, Y: {}, Z: {}, T: {} }}",
+            self.0.X, self.0.Y, self.0.Z, self.0.T
+        )
+    }
+}
+
+impl LowerHex for DecafPoint {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(
+            f,
+            "{{ X: {:x}, Y: {:x}, Z: {:x}, T: {:x} }}",
+            self.0.X, self.0.Y, self.0.Z, self.0.T
+        )
+    }
+}
+
+impl UpperHex for DecafPoint {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(
+            f,
+            "{{ X: {:X}, Y: {:X}, Z: {:X}, T: {:X} }}",
             self.0.X, self.0.Y, self.0.Z, self.0.T
         )
     }
@@ -140,6 +168,131 @@ impl TryFrom<&DecafPointBytes> for DecafPoint {
     }
 }
 
+impl Group for DecafPoint {
+    type Scalar = Scalar;
+
+    fn random(mut rng: impl RngCore) -> Self {
+        let mut uniform_bytes = [0u8; 112];
+        rng.fill_bytes(&mut uniform_bytes);
+        Self::from_uniform_bytes(&uniform_bytes)
+    }
+
+    fn identity() -> Self {
+        Self::IDENTITY
+    }
+
+    fn generator() -> Self {
+        Self::GENERATOR
+    }
+
+    fn is_identity(&self) -> Choice {
+        self.ct_eq(&Self::IDENTITY)
+    }
+
+    fn double(&self) -> Self {
+        Self(self.0.double())
+    }
+}
+
+impl GroupEncoding for DecafPoint {
+    type Repr = DecafPointRepr;
+
+    fn from_bytes(bytes: &Self::Repr) -> CtOption<Self> {
+        let pt = CompressedDecaf(*(bytes.as_ref()));
+        pt.decompress()
+    }
+
+    fn from_bytes_unchecked(bytes: &Self::Repr) -> CtOption<Self> {
+        let pt = CompressedDecaf(*(bytes.as_ref()));
+        pt.decompress()
+    }
+
+    fn to_bytes(&self) -> Self::Repr {
+        DecafPointRepr::from(self.compress().0)
+    }
+}
+
+impl CofactorGroup for DecafPoint {
+    type Subgroup = DecafPoint;
+
+    fn clear_cofactor(&self) -> Self::Subgroup {
+        *self
+    }
+
+    fn into_subgroup(self) -> CtOption<Self::Subgroup> {
+        CtOption::new(self, 1.into())
+    }
+
+    fn is_torsion_free(&self) -> Choice {
+        1.into()
+    }
+}
+
+impl PrimeGroup for DecafPoint {}
+
+impl MulByGenerator for DecafPoint {}
+
+impl LinearCombination for DecafPoint {}
+
+impl Curve for DecafPoint {
+    type AffineRepr = DecafAffinePoint;
+
+    fn to_affine(&self) -> Self::AffineRepr {
+        DecafAffinePoint(self.0.to_affine())
+    }
+}
+
+impl From<EdwardsPoint> for DecafPoint {
+    fn from(point: EdwardsPoint) -> Self {
+        Self(point.to_twisted())
+    }
+}
+
+impl From<&EdwardsPoint> for DecafPoint {
+    fn from(point: &EdwardsPoint) -> Self {
+        Self(point.to_twisted())
+    }
+}
+
+impl From<DecafPoint> for EdwardsPoint {
+    fn from(point: DecafPoint) -> Self {
+        point.0.to_untwisted()
+    }
+}
+
+impl From<&DecafPoint> for EdwardsPoint {
+    fn from(point: &DecafPoint) -> Self {
+        point.0.to_untwisted()
+    }
+}
+
+impl From<DecafAffinePoint> for DecafPoint {
+    fn from(point: DecafAffinePoint) -> Self {
+        Self(point.0.to_extended())
+    }
+}
+
+impl From<&DecafAffinePoint> for DecafPoint {
+    fn from(point: &DecafAffinePoint) -> Self {
+        Self(point.0.to_extended())
+    }
+}
+
+impl From<DecafPoint> for DecafAffinePoint {
+    fn from(point: DecafPoint) -> Self {
+        DecafAffinePoint(point.0.to_affine())
+    }
+}
+
+impl From<&DecafPoint> for DecafAffinePoint {
+    fn from(point: &DecafPoint) -> Self {
+        DecafAffinePoint(point.0.to_affine())
+    }
+}
+
+#[cfg(feature = "zeroize")]
+impl zeroize::DefaultIsZeroes for DecafPoint {}
+
 impl DecafPoint {
     /// The identity point
     pub const IDENTITY: DecafPoint = DecafPoint(ExtendedPoint::IDENTITY);
@@ -239,54 +392,6 @@ impl DecafPoint {
         let q0 = u0.map_to_curve_decaf448();
         let q1 = u1.map_to_curve_decaf448();
         Self(q0.add(&q1))
-    }
-
-    /// Compute pippenger multi-exponentiation.
-    /// Pippenger relies on scalars in canonical form
-    /// This uses a fixed window of 4 to be constant time
-    pub fn sum_of_products_pippenger(points: &[Self], scalars: &[Scalar]) -> Self {
-        const UPPER: usize = 256;
-        const W: usize = 4;
-        const WINDOWS: usize = UPPER / W; // careful--use ceiling division in case this doesn't divide evenly
-        const BUCKET_SIZE: usize = 1 << W;
-        const EDGE: usize = BUCKET_SIZE - 1;
-
-        let num_components = core::cmp::min(points.len(), scalars.len());
-
-        let mut windows = [Self::IDENTITY; WINDOWS];
-        let bytes = scalars.iter().map(Scalar::to_bytes).collect::<Vec<_>>();
-
-        for j in 0..WINDOWS {
-            let mut buckets = [Self::IDENTITY; BUCKET_SIZE];
-
-            for i in 0..num_components {
-                // j*W to get the nibble
-                // >> 3 to convert to byte, / 8
-                // (W * j & W) gets the nibble, mod W
-                // 1 << W - 1 to get the offset
-                let index = (bytes[i][(j * W) >> 3] >> ((W * j) & W)) as usize & EDGE; // little-endian
-                buckets[index] += points[i];
-            }
-
-            let mut sum = Self::IDENTITY;
-
-            let mut i = BUCKET_SIZE - 1;
-            while i > 0 {
-                sum += buckets[i];
-                windows[j] += sum;
-                i -= 1;
-            }
-        }
-
-        let mut p = Self::IDENTITY;
-        for i in (0..WINDOWS).rev() {
-            for _ in 0..W {
-                p = p.add(&p);
-            }
-
-            p += windows[i];
-        }
-        p
     }
 }
 
@@ -407,6 +512,12 @@ impl TryFrom<&DecafPointBytes> for CompressedDecaf {
     }
 }
 
+impl AsRef<DecafPointBytes> for CompressedDecaf {
+    fn as_ref(&self) -> &DecafPointBytes {
+        &self.0
+    }
+}
+
 #[cfg(feature = "serde")]
 impl serdect::serde::Serialize for CompressedDecaf {
     fn serialize<S: serdect::serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
@@ -425,6 +536,9 @@ impl<'de> serdect::serde::Deserialize<'de> for CompressedDecaf {
         Self::try_from(bytes).map_err(serdect::serde::de::Error::custom)
     }
 }
+
+#[cfg(feature = "zeroize")]
+impl zeroize::DefaultIsZeroes for CompressedDecaf {}
 
 impl CompressedDecaf {
     /// The compressed identity point
@@ -644,5 +758,54 @@ mod test {
         assert_eq!(point.0.is_on_curve().unwrap_u8(), 1u8);
         assert_ne!(point, DecafPoint::IDENTITY);
         assert_ne!(point, DecafPoint::GENERATOR);
+    }
+
+    #[test]
+    fn test_sum_of_products() {
+        use elliptic_curve_tools::SumOfProducts;
+        let values = [
+            (Scalar::from(8u8), DecafPoint::GENERATOR),
+            (Scalar::from(9u8), DecafPoint::GENERATOR),
+            (Scalar::from(10u8), DecafPoint::GENERATOR),
+            (Scalar::from(11u8), DecafPoint::GENERATOR),
+            (Scalar::from(12u8), DecafPoint::GENERATOR),
+        ];
+
+        let expected = DecafPoint::GENERATOR * Scalar::from(50u8);
+        let result = DecafPoint::sum_of_products(&values);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_sum_of_products2() {
+        use elliptic_curve_tools::SumOfProducts;
+        use rand_core::SeedableRng;
+
+        const TESTS: usize = 5;
+        const CHUNKS: usize = 10;
+        let mut rng = rand_chacha::ChaCha8Rng::from_seed([3u8; 32]);
+
+        for _ in 0..TESTS {
+            let scalars = (0..CHUNKS)
+                .map(|_| Scalar::random(&mut rng))
+                .collect::<Vec<_>>();
+            let points = (0..CHUNKS)
+                .map(|_| DecafPoint::random(&mut rng))
+                .collect::<Vec<_>>();
+
+            let input = scalars
+                .iter()
+                .zip(points.iter())
+                .map(|(&s, &p)| (s, p))
+                .collect::<Vec<_>>();
+            let rhs = DecafPoint::sum_of_products(&input);
+
+            let expected = points
+                .iter()
+                .zip(scalars.iter())
+                .fold(DecafPoint::IDENTITY, |acc, (&p, &s)| acc + (p * s));
+
+            assert_eq!(rhs, expected);
+        }
     }
 }

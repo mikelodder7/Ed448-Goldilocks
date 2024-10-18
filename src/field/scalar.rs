@@ -581,6 +581,34 @@ impl From<&Scalar> for ScalarPrimitive<Ed448> {
     }
 }
 
+impl From<ScalarPrimitive<Decaf448>> for Scalar {
+    fn from(scalar: ScalarPrimitive<Decaf448>) -> Self {
+        let bytes = scalar.as_uint().to_le_bytes();
+        Self::from_bytes(&bytes)
+    }
+}
+
+impl From<&ScalarPrimitive<Decaf448>> for Scalar {
+    fn from(scalar: &ScalarPrimitive<Decaf448>) -> Self {
+        let uint = *scalar.as_uint();
+        uint.into()
+    }
+}
+
+impl From<Scalar> for ScalarPrimitive<Decaf448> {
+    fn from(scalar: Scalar) -> Self {
+        let uint: U448 = scalar.into();
+        Self::from_uint_unchecked(uint)
+    }
+}
+
+impl From<&Scalar> for ScalarPrimitive<Decaf448> {
+    fn from(scalar: &Scalar) -> Self {
+        let uint: U448 = scalar.into();
+        ScalarPrimitive::from_uint_unchecked(uint)
+    }
+}
+
 impl From<U448> for Scalar {
     fn from(uint: U448) -> Self {
         <Self as Reduce<U448>>::reduce(uint)

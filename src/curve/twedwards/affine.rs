@@ -10,7 +10,7 @@ use subtle::{Choice, ConditionallySelectable};
 
 /// Represents an AffinePoint on the Twisted Edwards Curve
 /// with Equation y^2 - x^2 = 1 - (TWISTED_D) * x^2 * y^2
-#[derive(PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct AffinePoint {
     pub(crate) x: FieldElement,
     pub(crate) y: FieldElement,
@@ -58,7 +58,7 @@ impl AffinePoint {
         AffinePoint { x, y }
     }
     /// Converts an AffinePoint to an ExtensiblePoint
-    pub(crate) fn to_extensible(&self) -> ExtensiblePoint {
+    pub(crate) fn to_extensible(self) -> ExtensiblePoint {
         ExtensiblePoint {
             X: self.x,
             Y: self.y,
@@ -76,7 +76,7 @@ impl AffinePoint {
     //     }
     // }
     /// Converts an An AffinePoint to an ExtendedPoint
-    pub(crate) fn to_extended(&self) -> ExtendedPoint {
+    pub(crate) fn to_extended(self) -> ExtendedPoint {
         self.to_extensible().to_extended()
     }
 }

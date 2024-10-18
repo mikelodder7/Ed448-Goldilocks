@@ -2,9 +2,11 @@ use crate::curve::edwards::EdwardsPoint;
 use crate::field::FieldElement;
 use crate::*;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
+
+#[cfg(feature = "zeroize")]
 use zeroize::DefaultIsZeroes;
 
-// Affine point on untwisted curve
+/// Affine point on untwisted curve
 #[derive(Copy, Clone, Debug)]
 pub struct AffinePoint {
     pub(crate) x: FieldElement,
@@ -52,6 +54,7 @@ impl elliptic_curve::point::AffineCoordinates for AffinePoint {
     }
 }
 
+#[cfg(feature = "zeroize")]
 impl DefaultIsZeroes for AffinePoint {}
 
 impl AffinePoint {
@@ -102,12 +105,12 @@ impl AffinePoint {
         }
     }
 
-    /// Return the X coordinate
+    /// The X coordinate
     pub fn x(&self) -> [u8; 56] {
         self.x.to_bytes()
     }
 
-    /// Return the Y coordinate
+    /// The Y coordinate
     pub fn y(&self) -> [u8; 56] {
         self.y.to_bytes()
     }

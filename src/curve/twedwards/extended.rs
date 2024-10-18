@@ -51,6 +51,9 @@ impl Default for ExtendedPoint {
     }
 }
 
+#[cfg(feature = "zeroize")]
+impl zeroize::DefaultIsZeroes for ExtendedPoint {}
+
 impl ExtendedPoint {
     /// Identity point
     pub const IDENTITY: ExtendedPoint = ExtendedPoint {
@@ -170,6 +173,7 @@ impl ExtendedPoint {
         }
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

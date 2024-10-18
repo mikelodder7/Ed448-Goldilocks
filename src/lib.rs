@@ -69,7 +69,7 @@ pub(crate) use field::{GOLDILOCKS_BASE_POINT, TWISTED_EDWARDS_BASE_POINT};
 pub use curve::{
     AffinePoint, CompressedEdwardsY, EdwardsPoint, MontgomeryPoint, ProjectiveMontgomeryPoint,
 };
-pub use decaf::{CompressedDecaf, DecafPoint};
+pub use decaf::{AffinePoint as DecafAffinePoint, CompressedDecaf, DecafPoint};
 pub use field::{Scalar, ScalarBytes, WideScalarBytes, MODULUS_LIMBS, ORDER, WIDE_ORDER};
 pub use ristretto::{CompressedRistretto, RistrettoPoint};
 
@@ -80,13 +80,17 @@ use elliptic_curve::{
     Curve, CurveArithmetic, FieldBytesEncoding,
 };
 
+/// Edwards448 curve.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Ed448;
 
+/// Bytes of the Ed448 field
 pub type Ed448FieldBytes = elliptic_curve::FieldBytes<Ed448>;
 
+/// Scalar bits of the Ed448 scalar
 pub type Ed448ScalarBits = elliptic_curve::scalar::ScalarBits<Ed448>;
 
+/// Non-zero scalar of the Ed448 scalar
 pub type Ed448NonZeroScalar = elliptic_curve::NonZeroScalar<Ed448>;
 
 unsafe impl Send for Ed448 {}
@@ -119,5 +123,51 @@ impl FieldBytesEncoding<Ed448> for U448 {
 impl CurveArithmetic for Ed448 {
     type AffinePoint = AffinePoint;
     type ProjectivePoint = EdwardsPoint;
+    type Scalar = Scalar;
+}
+
+/// Decaf448 curve.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct Decaf448;
+
+/// Bytes of the Decaf448 field
+pub type Decaf448FieldBytes = elliptic_curve::FieldBytes<Decaf448>;
+
+/// Scalar bits of the Decaf448 scalar
+pub type Decaf448ScalarBits = elliptic_curve::scalar::ScalarBits<Decaf448>;
+
+/// Non-zero scalar of the Decaf448 scalar
+pub type Decaf448NonZeroScalar = elliptic_curve::NonZeroScalar<Decaf448>;
+
+unsafe impl Send for Decaf448 {}
+unsafe impl Sync for Decaf448 {}
+
+impl Curve for Decaf448 {
+    type FieldBytesSize = U57;
+    type Uint = U448;
+
+    const ORDER: U448 = ORDER;
+}
+
+impl PointCompression for Decaf448 {
+    const COMPRESS_POINTS: bool = true;
+}
+
+impl FieldBytesEncoding<Decaf448> for U448 {
+    fn decode_field_bytes(field_bytes: &Decaf448FieldBytes) -> Self {
+        let data = ByteArray::<U448>::from_slice(field_bytes);
+        U448::from_le_byte_array(*data)
+    }
+
+    fn encode_field_bytes(&self) -> Decaf448FieldBytes {
+        let mut data = Decaf448FieldBytes::default();
+        data.copy_from_slice(&self.to_le_byte_array()[..]);
+        data
+    }
+}
+
+impl CurveArithmetic for Decaf448 {
+    type AffinePoint = DecafAffinePoint;
+    type ProjectivePoint = DecafPoint;
     type Scalar = Scalar;
 }

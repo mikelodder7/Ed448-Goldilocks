@@ -76,6 +76,8 @@ pub struct ProjectiveMontgomeryPoint {
 
 impl Mul<&Scalar> for &MontgomeryPoint {
     type Output = MontgomeryPoint;
+
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn mul(self, scalar: &Scalar) -> MontgomeryPoint {
         // Algorithm 8 of Costello-Smith 2017
         let affine_u = FieldElement::from_bytes(&self.0);

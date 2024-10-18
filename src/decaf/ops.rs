@@ -1,10 +1,10 @@
+use crate::{curve::scalar_mul::double_and_add, DecafAffinePoint, Scalar};
 use core::{
     borrow::Borrow,
     iter::Sum,
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
-
-use crate::{curve::scalar_mul::double_and_add, Scalar};
+use elliptic_curve::group::Curve;
 
 use super::DecafPoint;
 
@@ -48,7 +48,33 @@ impl<'a, 'b> Add<&'a DecafPoint> for &'b DecafPoint {
     }
 }
 
+impl<'a, 'b> Add<&'a DecafAffinePoint> for &'b DecafPoint {
+    type Output = DecafPoint;
+
+    fn add(self, rhs: &'a DecafAffinePoint) -> Self::Output {
+        self + DecafPoint(rhs.0.to_extended())
+    }
+}
+
+impl<'a, 'b> Add<&'a DecafPoint> for &'b DecafAffinePoint {
+    type Output = DecafPoint;
+
+    fn add(self, rhs: &'a DecafPoint) -> Self::Output {
+        DecafPoint(self.0.to_extended()) + rhs
+    }
+}
+
 define_add_variants!(LHS = DecafPoint, RHS = DecafPoint, Output = DecafPoint);
+define_add_variants!(
+    LHS = DecafPoint,
+    RHS = DecafAffinePoint,
+    Output = DecafPoint
+);
+define_add_variants!(
+    LHS = DecafAffinePoint,
+    RHS = DecafPoint,
+    Output = DecafPoint
+);
 
 impl AddAssign<&DecafPoint> for DecafPoint {
     fn add_assign(&mut self, other: &DecafPoint) {
@@ -61,6 +87,21 @@ impl AddAssign for DecafPoint {
     }
 }
 
+impl AddAssign<&DecafAffinePoint> for DecafPoint {
+    fn add_assign(&mut self, other: &DecafAffinePoint) {
+        *self = *self + *other;
+    }
+}
+
+impl AddAssign<&DecafPoint> for DecafAffinePoint {
+    fn add_assign(&mut self, rhs: &DecafPoint) {
+        *self = (DecafPoint(self.0.to_extended()) + rhs).to_affine();
+    }
+}
+
+define_add_assign_variants!(LHS = DecafPoint, RHS = DecafAffinePoint);
+define_add_assign_variants!(LHS = DecafAffinePoint, RHS = DecafPoint);
+
 // Point Subtraction
 
 impl<'a, 'b> Sub<&'a DecafPoint> for &'b DecafPoint {
@@ -70,7 +111,33 @@ impl<'a, 'b> Sub<&'a DecafPoint> for &'b DecafPoint {
     }
 }
 
+impl<'a, 'b> Sub<&'a DecafAffinePoint> for &'b DecafPoint {
+    type Output = DecafPoint;
+
+    fn sub(self, rhs: &'a DecafAffinePoint) -> Self::Output {
+        self - DecafPoint(rhs.0.to_extended())
+    }
+}
+
+impl<'a, 'b> Sub<&'a DecafPoint> for &'b DecafAffinePoint {
+    type Output = DecafPoint;
+
+    fn sub(self, rhs: &'a DecafPoint) -> Self::Output {
+        DecafPoint(self.0.to_extended()) - rhs
+    }
+}
+
 define_sub_variants!(LHS = DecafPoint, RHS = DecafPoint, Output = DecafPoint);
+define_sub_variants!(
+    LHS = DecafPoint,
+    RHS = DecafAffinePoint,
+    Output = DecafPoint
+);
+define_sub_variants!(
+    LHS = DecafAffinePoint,
+    RHS = DecafPoint,
+    Output = DecafPoint
+);
 
 impl SubAssign<&DecafPoint> for DecafPoint {
     fn sub_assign(&mut self, other: &DecafPoint) {
@@ -82,6 +149,21 @@ impl SubAssign for DecafPoint {
         *self = *self - other;
     }
 }
+
+impl SubAssign<&DecafAffinePoint> for DecafPoint {
+    fn sub_assign(&mut self, other: &DecafAffinePoint) {
+        *self = *self - *other;
+    }
+}
+
+impl SubAssign<&DecafPoint> for DecafAffinePoint {
+    fn sub_assign(&mut self, rhs: &DecafPoint) {
+        *self = (DecafPoint(self.0.to_extended()) - rhs).to_affine();
+    }
+}
+
+define_sub_assign_variants!(LHS = DecafPoint, RHS = DecafAffinePoint);
+define_sub_assign_variants!(LHS = DecafAffinePoint, RHS = DecafPoint);
 
 // Point Negation
 
