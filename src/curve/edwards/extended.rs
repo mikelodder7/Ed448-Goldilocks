@@ -227,8 +227,8 @@ impl CompressedEdwardsY {
     /// Attempt to decompress to an `EdwardsPoint`.
     ///
     /// Returns `None` if the input is not the \\(y\\)-coordinate of a
-    /// curve point.`
-    pub fn decompress(&self) -> CtOption<EdwardsPoint> {
+    /// curve point.
+    pub fn decompress_unchecked(&self) -> CtOption<EdwardsPoint> {
         // Safe to unwrap here as the underlying data structure is a slice
         let (sign, b) = self.0.split_last().unwrap();
 
@@ -249,9 +249,18 @@ impl CompressedEdwardsY {
         let is_negative = x.is_negative();
         x.conditional_negate(compressed_sign_bit ^ is_negative);
 
-        let pt = AffinePoint { x, y }.to_edwards();
+        CtOption::new(AffinePoint { x, y }.to_edwards(), is_res)
+    }
 
-        CtOption::new(pt, is_res & pt.is_on_curve() & pt.is_torsion_free())
+    /// Attempt to decompress to an `EdwardsPoint`.
+    ///
+    /// Returns `None`:
+    /// - if the input is not the \\(y\\)-coordinate of a curve point.
+    /// - if the input point is not on the curve.
+    /// - if the input point has nonzero torsion component.
+    pub fn decompress(&self) -> CtOption<EdwardsPoint> {
+        self.decompress_unchecked()
+            .and_then(|pt| CtOption::new(pt, pt.is_on_curve() & pt.is_torsion_free()))
     }
 
     /// View this `CompressedEdwardsY` as an array of bytes.
