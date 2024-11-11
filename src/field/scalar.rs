@@ -148,6 +148,7 @@ impl From<u128> for Scalar {
 
 impl Index<usize> for Scalar {
     type Output = u32;
+
     fn index(&self, index: usize) -> &Self::Output {
         &self.0[index]
     }
@@ -290,8 +291,8 @@ impl<'a> Product<&'a Scalar> for Scalar {
 }
 
 impl Field for Scalar {
-    const ZERO: Self = Self::ZERO;
     const ONE: Self = Self::ONE;
+    const ZERO: Self = Self::ZERO;
 
     fn random(mut rng: impl RngCore) -> Self {
         let mut seed = WideScalarBytes::default();
@@ -319,6 +320,25 @@ impl Field for Scalar {
 impl PrimeField for Scalar {
     type Repr = ScalarBytes;
 
+    const CAPACITY: u32 = Self::NUM_BITS - 1;
+    const DELTA: Self = Self([0x961, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const MODULUS: &'static str = "3fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3";
+    const MULTIPLICATIVE_GENERATOR: Self = Self([7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const NUM_BITS: u32 = 448;
+    const ROOT_OF_UNITY: Self = Self([
+        0xbdc63ffe, 0xa3a90a90, 0x8330209f, 0x8990470e, 0x3f5c425d, 0x63ea6e70, 0xc2efc65d,
+        0xf9b5c014, 0x1d478bc5, 0xb26d8405, 0x59cd81e2, 0x5a1f2fb9, 0x838ee01b, 0x2935b8ce,
+    ]);
+    const ROOT_OF_UNITY_INV: Self = Self([
+        0x284d98cd, 0x37bc82e8, 0x2e8ae84c, 0xe42ddad7, 0xaea94041, 0x1a21435e, 0x1b644703,
+        0x2c07bf6c, 0x330b2d96, 0x1f0163dc, 0x8b6172cd, 0x8925b1ee, 0x6717df40, 0x1f87f25a,
+    ]);
+    const S: u32 = 1;
+    const TWO_INV: Self = Self([
+        0x55ac227a, 0x91bc6149, 0x46e2c7aa, 0x10b66139, 0xd76b1b48, 0xe2276da4, 0xbe6511f4,
+        0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0x1fffffff,
+    ]);
+
     fn from_repr(repr: Self::Repr) -> CtOption<Self> {
         Self::from_canonical_bytes(&repr)
     }
@@ -330,25 +350,6 @@ impl PrimeField for Scalar {
     fn is_odd(&self) -> Choice {
         Choice::from((self.0[0] & 1) as u8)
     }
-
-    const MODULUS: &'static str = "3fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3";
-    const NUM_BITS: u32 = 448;
-    const CAPACITY: u32 = Self::NUM_BITS - 1;
-    const TWO_INV: Self = Self([
-        0x55ac227a, 0x91bc6149, 0x46e2c7aa, 0x10b66139, 0xd76b1b48, 0xe2276da4, 0xbe6511f4,
-        0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0x1fffffff,
-    ]);
-    const MULTIPLICATIVE_GENERATOR: Self = Self([7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    const S: u32 = 1;
-    const ROOT_OF_UNITY: Self = Self([
-        0xbdc63ffe, 0xa3a90a90, 0x8330209f, 0x8990470e, 0x3f5c425d, 0x63ea6e70, 0xc2efc65d,
-        0xf9b5c014, 0x1d478bc5, 0xb26d8405, 0x59cd81e2, 0x5a1f2fb9, 0x838ee01b, 0x2935b8ce,
-    ]);
-    const ROOT_OF_UNITY_INV: Self = Self([
-        0x284d98cd, 0x37bc82e8, 0x2e8ae84c, 0xe42ddad7, 0xaea94041, 0x1a21435e, 0x1b644703,
-        0x2c07bf6c, 0x330b2d96, 0x1f0163dc, 0x8b6172cd, 0x8925b1ee, 0x6717df40, 0x1f87f25a,
-    ]);
-    const DELTA: Self = Self([0x961, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -635,6 +636,7 @@ impl From<&Scalar> for U448 {
 
 impl FromUintUnchecked for Scalar {
     type Uint = U448;
+
     fn from_uint_unchecked(uint: U448) -> Self {
         let bytes = uint.to_le_bytes();
         Self::from_bytes(&bytes)
@@ -702,9 +704,7 @@ impl From<&Scalar> for Ed448ScalarBits {
 
 impl Scalar {
     pub const ONE: Scalar = Scalar([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-
     pub const TWO: Scalar = Scalar([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-
     pub const ZERO: Scalar = Scalar([0; 14]);
 
     /// Is this scalar equal to zero?
@@ -727,6 +727,7 @@ impl Scalar {
         }
         self.0[13] >>= 2
     }
+
     // This method was modified from Curve25519-Dalek codebase. [scalar.rs]
     // We start with 14 u32s and convert them to 56 u8s.
     // We then use the code copied from Dalek to convert the 56 u8s to radix-16 and re-center the coefficients to be between [-16,16)
@@ -760,6 +761,7 @@ impl Scalar {
 
         output
     }
+
     // XXX: Better if this method returns an array of 448 items
     /// Returns the bits of the scalar in little-endian order.
     pub fn bits(&self) -> [bool; 448] {

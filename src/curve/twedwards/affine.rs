@@ -36,6 +36,7 @@ impl AffinePoint {
 
         yy - xx == FieldElement::ONE + (FieldElement::TWISTED_D * xx * yy)
     }
+
     // Negates an AffinePoint
     pub(crate) fn negate(&self) -> AffinePoint {
         AffinePoint {
@@ -43,6 +44,7 @@ impl AffinePoint {
             y: self.y,
         }
     }
+
     /// Adds an AffinePoint onto an AffinePoint
     pub(crate) fn add(&self, other: &AffinePoint) -> AffinePoint {
         let y_numerator = self.y * other.y + self.x * other.x;
@@ -57,6 +59,7 @@ impl AffinePoint {
         let y = y_numerator * y_denominator.invert();
         AffinePoint { x, y }
     }
+
     /// Converts an AffinePoint to an ExtensiblePoint
     pub(crate) fn to_extensible(self) -> ExtensiblePoint {
         ExtensiblePoint {
@@ -67,6 +70,7 @@ impl AffinePoint {
             T2: self.y,
         }
     }
+
     // /// Converts an AffinePoint to an AffineNielsPoint
     // pub(crate) fn to_affine_niels(&self) -> AffineNielsPoint {
     //     AffineNielsPoint {
@@ -101,6 +105,13 @@ impl ConditionallySelectable for AffineNielsPoint {
 }
 
 impl AffineNielsPoint {
+    /// Returns the identity element for an AffineNielsPoint
+    pub(crate) const IDENTITY: AffineNielsPoint = AffineNielsPoint {
+        y_plus_x: FieldElement::ONE,
+        y_minus_x: FieldElement::ONE,
+        td: FieldElement::ZERO,
+    };
+
     /// Checks if two AffineNielsPoints are equal
     /// Returns true if they are
     pub(crate) fn equals(&self, other: &AffineNielsPoint) -> bool {
@@ -109,12 +120,6 @@ impl AffineNielsPoint {
             && (self.td == other.td)
     }
 
-    /// Returns the identity element for an AffineNielsPoint
-    pub(crate) const IDENTITY: AffineNielsPoint = AffineNielsPoint {
-        y_plus_x: FieldElement::ONE,
-        y_minus_x: FieldElement::ONE,
-        td: FieldElement::ZERO,
-    };
     /// Converts an AffineNielsPoint to an ExtendedPoint
     pub(crate) fn to_extended(self) -> ExtendedPoint {
         ExtendedPoint {

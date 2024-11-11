@@ -186,18 +186,18 @@ impl MapToCurve for FieldElement {
 }
 
 impl FieldElement {
-    pub const ZERO: Self = Self(ResidueType::new(&U448::ZERO));
-    pub const ONE: Self = Self(ResidueType::new(&U448::ONE));
-    pub const MINUS_ONE: Self = Self(ResidueType::new(&U448::from_be_hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffe")));
-    pub const NEG_FOUR_TIMES_TWISTED_D: Self = Self(ResidueType::new(&U448::from_be_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000262a8")));
+    pub const A_PLUS_TWO_OVER_FOUR: Self = Self(ResidueType::new(&U448::from_be_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000098aa")));
+    pub const DECAF_FACTOR: Self = Self(ResidueType::new(&U448::from_be_hex("22d962fbeb24f7683bf68d722fa26aa0a1f1a7b8a5b8d54b64a2d780968c14ba839a66f4fd6eded260337bf6aa20ce529642ef0f45572736")));
     pub const EDWARDS_D: Self = Self(ResidueType::new(&U448::from_be_hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffff6756")));
+    pub const J: Self = Self(ResidueType::new(&U448::from_u64(156326)));
+    pub const MINUS_ONE: Self = Self(ResidueType::new(&U448::from_be_hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffe")));
     pub const NEG_EDWARDS_D: Self = Self(ResidueType::new(&U448::from_be_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000098a9")));
+    pub const NEG_FOUR_TIMES_TWISTED_D: Self = Self(ResidueType::new(&U448::from_be_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000262a8")));
+    pub const ONE: Self = Self(ResidueType::new(&U448::ONE));
     pub const TWISTED_D: Self = Self(ResidueType::new(&U448::from_be_hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffff6755")));
     pub const TWO_TIMES_TWISTED_D: Self = Self(ResidueType::new(&U448::from_be_hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffffffffffffffffffffffffffffffffffffffffffffffffeceab")));
-    pub const DECAF_FACTOR: Self = Self(ResidueType::new(&U448::from_be_hex("22d962fbeb24f7683bf68d722fa26aa0a1f1a7b8a5b8d54b64a2d780968c14ba839a66f4fd6eded260337bf6aa20ce529642ef0f45572736")));
-    pub const A_PLUS_TWO_OVER_FOUR: Self = Self(ResidueType::new(&U448::from_be_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000098aa")));
-    pub const J: Self = Self(ResidueType::new(&U448::from_u64(156326)));
     pub const Z: Self = Self(ResidueType::new(&U448::from_be_hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffe")));
+    pub const ZERO: Self = Self(ResidueType::new(&U448::ZERO));
 
     pub fn is_negative(&self) -> Choice {
         let bytes = self.to_bytes();

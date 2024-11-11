@@ -3,7 +3,7 @@
 /// Scalar Multiplication for this curve is pre-dominantly delegated to the Twisted Edwards variation using a (doubling) isogeny
 /// Passing the point back to the Goldilocks curve using the dual-isogeny clears the cofactor.
 /// The small remainder of the Scalar Multiplication is computed on the untwisted curve.
-/// See https://www.shiftleft.org/papers/isogeny/isogeny.pdf for details
+/// See <https://www.shiftleft.org/papers/isogeny/isogeny.pdf> for details
 ///
 /// This isogeny strategy does not clear the cofactor on the Goldilocks curve unless the Scalar is a multiple of 4.
 /// or the point is known to be in the q-torsion subgroup.

@@ -55,20 +55,19 @@ impl Default for ExtendedPoint {
 impl zeroize::DefaultIsZeroes for ExtendedPoint {}
 
 impl ExtendedPoint {
-    /// Identity point
-    pub const IDENTITY: ExtendedPoint = ExtendedPoint {
-        X: FieldElement::ZERO,
-        Y: FieldElement::ONE,
-        Z: FieldElement::ONE,
-        T: FieldElement::ZERO,
-    };
-
     /// Generator for the prime subgroup
     pub const GENERATOR: ExtendedPoint = ExtendedPoint {
         X: crate::TWISTED_EDWARDS_BASE_POINT.X,
         Y: crate::TWISTED_EDWARDS_BASE_POINT.Y,
         Z: crate::TWISTED_EDWARDS_BASE_POINT.Z,
         T: crate::TWISTED_EDWARDS_BASE_POINT.T,
+    };
+    /// Identity point
+    pub const IDENTITY: ExtendedPoint = ExtendedPoint {
+        X: FieldElement::ZERO,
+        Y: FieldElement::ONE,
+        Z: FieldElement::ONE,
+        T: FieldElement::ZERO,
     };
 
     /// Doubles an extended point
@@ -133,6 +132,7 @@ impl ExtendedPoint {
             T: new_x * new_y,
         }
     }
+
     /// Uses a 2-isogeny to map the point to the Ed448-Goldilocks
     pub fn to_untwisted(self) -> EdwardsExtendedPoint {
         self.edwards_isogeny(FieldElement::MINUS_ONE)
@@ -154,6 +154,7 @@ impl ExtendedPoint {
 
         XY.ct_eq(&ZT) & lhs.ct_eq(&rhs)
     }
+
     /// Negates a point
     pub fn negate(&self) -> ExtendedPoint {
         ExtendedPoint {
@@ -163,6 +164,7 @@ impl ExtendedPoint {
             T: -self.T,
         }
     }
+
     /// Torques a point
     pub fn torque(&self) -> ExtendedPoint {
         ExtendedPoint {

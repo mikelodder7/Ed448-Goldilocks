@@ -214,15 +214,14 @@ impl<'de> serdect::serde::Deserialize<'de> for CompressedEdwardsY {
 }
 
 impl CompressedEdwardsY {
-    /// The compressed identity point
-    pub const IDENTITY: Self = Self([0u8; 57]);
-
     /// The compressed generator point
     pub const GENERATOR: Self = Self([
         20, 250, 48, 242, 91, 121, 8, 152, 173, 200, 215, 78, 44, 19, 189, 253, 196, 57, 124, 230,
         28, 255, 211, 58, 215, 194, 160, 5, 30, 156, 120, 135, 64, 152, 163, 108, 115, 115, 234,
         75, 98, 199, 201, 86, 55, 32, 118, 136, 36, 188, 182, 110, 113, 70, 63, 105, 0,
     ]);
+    /// The compressed identity point
+    pub const IDENTITY: Self = Self([0u8; 57]);
 
     /// Attempt to decompress to an `EdwardsPoint`.
     ///
@@ -534,6 +533,8 @@ impl Curve for EdwardsPoint {
 }
 
 impl EdwardsPoint {
+    /// Generator for the prime subgroup
+    pub const GENERATOR: Self = GOLDILOCKS_BASE_POINT;
     /// Identity point
     pub const IDENTITY: Self = Self {
         X: FieldElement::ZERO,
@@ -541,9 +542,6 @@ impl EdwardsPoint {
         Z: FieldElement::ONE,
         T: FieldElement::ZERO,
     };
-
-    /// Generator for the prime subgroup
-    pub const GENERATOR: Self = GOLDILOCKS_BASE_POINT;
 
     pub fn to_montgomery(&self) -> MontgomeryPoint {
         // u = y^2 * [(1-dy^2)/(1-y^2)]
@@ -800,6 +798,7 @@ impl EdwardsPoint {
 
 impl<'a, 'b> Add<&'b EdwardsPoint> for &'a EdwardsPoint {
     type Output = EdwardsPoint;
+
     fn add(self, other: &'b EdwardsPoint) -> EdwardsPoint {
         self.add(other)
     }
@@ -817,6 +816,7 @@ define_add_variants!(LHS = AffinePoint, RHS = EdwardsPoint, Output = EdwardsPoin
 
 impl Add<&AffinePoint> for &EdwardsPoint {
     type Output = EdwardsPoint;
+
     fn add(self, other: &AffinePoint) -> EdwardsPoint {
         *self + *other
     }
@@ -824,6 +824,7 @@ impl Add<&AffinePoint> for &EdwardsPoint {
 
 impl Add<&EdwardsPoint> for &AffinePoint {
     type Output = EdwardsPoint;
+
     fn add(self, other: &EdwardsPoint) -> EdwardsPoint {
         *other + *self
     }
@@ -855,6 +856,7 @@ define_add_assign_variants!(LHS = AffinePoint, RHS = EdwardsPoint);
 
 impl<'a, 'b> Sub<&'b EdwardsPoint> for &'a EdwardsPoint {
     type Output = EdwardsPoint;
+
     fn sub(self, other: &'b EdwardsPoint) -> EdwardsPoint {
         self.add(&other.negate())
     }
@@ -868,6 +870,7 @@ define_sub_variants!(
 
 impl Sub<&AffinePoint> for &EdwardsPoint {
     type Output = EdwardsPoint;
+
     fn sub(self, other: &AffinePoint) -> EdwardsPoint {
         *self - other.to_edwards()
     }
@@ -877,6 +880,7 @@ define_sub_variants!(LHS = EdwardsPoint, RHS = AffinePoint, Output = EdwardsPoin
 
 impl Sub<&EdwardsPoint> for &AffinePoint {
     type Output = EdwardsPoint;
+
     fn sub(self, other: &EdwardsPoint) -> EdwardsPoint {
         *self - other
     }
@@ -958,6 +962,7 @@ define_mul_variants!(LHS = Scalar, RHS = EdwardsPoint, Output = EdwardsPoint);
 
 impl<'a, 'b> Mul<&'b Scalar> for &'a EdwardsPoint {
     type Output = EdwardsPoint;
+
     /// Scalar multiplication: compute `scalar * self`.
     fn mul(self, scalar: &'b Scalar) -> EdwardsPoint {
         self.scalar_mul(scalar)

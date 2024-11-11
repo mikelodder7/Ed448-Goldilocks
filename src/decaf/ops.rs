@@ -11,6 +11,7 @@ use super::DecafPoint;
 /// Scalar Mul Operations
 impl<'s, 'p> Mul<&'s Scalar> for &'p DecafPoint {
     type Output = DecafPoint;
+
     fn mul(self, scalar: &'s Scalar) -> DecafPoint {
         // XXX: We can do better than double and add
         DecafPoint(double_and_add(&self.0, scalar))
@@ -21,6 +22,7 @@ define_mul_variants!(LHS = DecafPoint, RHS = Scalar, Output = DecafPoint);
 
 impl<'s, 'p> Mul<&'p DecafPoint> for &'s Scalar {
     type Output = DecafPoint;
+
     fn mul(self, point: &'p DecafPoint) -> DecafPoint {
         point * self
     }
@@ -43,6 +45,7 @@ impl MulAssign<Scalar> for DecafPoint {
 
 impl<'a, 'b> Add<&'a DecafPoint> for &'b DecafPoint {
     type Output = DecafPoint;
+
     fn add(self, other: &'a DecafPoint) -> DecafPoint {
         DecafPoint(self.0.to_extensible().add_extended(&other.0).to_extended())
     }
@@ -106,6 +109,7 @@ define_add_assign_variants!(LHS = DecafAffinePoint, RHS = DecafPoint);
 
 impl<'a, 'b> Sub<&'a DecafPoint> for &'b DecafPoint {
     type Output = DecafPoint;
+
     fn sub(self, other: &'a DecafPoint) -> DecafPoint {
         DecafPoint(self.0.to_extensible().sub_extended(&other.0).to_extended())
     }
@@ -169,12 +173,14 @@ define_sub_assign_variants!(LHS = DecafAffinePoint, RHS = DecafPoint);
 
 impl<'b> Neg for &'b DecafPoint {
     type Output = DecafPoint;
+
     fn neg(self) -> DecafPoint {
         DecafPoint(self.0.negate())
     }
 }
 impl Neg for DecafPoint {
     type Output = DecafPoint;
+
     fn neg(self) -> DecafPoint {
         (&self).neg()
     }

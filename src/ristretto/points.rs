@@ -42,10 +42,10 @@ impl CompressedRistretto {
 }
 
 impl RistrettoPoint {
-    /// The identity element of the group: the point at infinity.
-    pub const IDENTITY: RistrettoPoint = RistrettoPoint(ExtendedPoint::IDENTITY);
     /// The generator of the Ristretto group.
     pub const GENERATOR: RistrettoPoint = RistrettoPoint(ExtendedPoint::GENERATOR);
+    /// The identity element of the group: the point at infinity.
+    pub const IDENTITY: RistrettoPoint = RistrettoPoint(ExtendedPoint::IDENTITY);
 
     pub fn equals(&self, other: &RistrettoPoint) -> bool {
         let XY = self.0.X * other.0.Y;

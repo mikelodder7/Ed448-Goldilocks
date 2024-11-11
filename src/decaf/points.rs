@@ -294,11 +294,10 @@ impl From<&DecafPoint> for DecafAffinePoint {
 impl zeroize::DefaultIsZeroes for DecafPoint {}
 
 impl DecafPoint {
-    /// The identity point
-    pub const IDENTITY: DecafPoint = DecafPoint(ExtendedPoint::IDENTITY);
-
     /// The generator point
     pub const GENERATOR: DecafPoint = DECAF_BASEPOINT;
+    /// The identity point
+    pub const IDENTITY: DecafPoint = DecafPoint(ExtendedPoint::IDENTITY);
 
     /// Check if the point is the identity
     pub fn is_identity(&self) -> Choice {
@@ -541,15 +540,14 @@ impl<'de> serdect::serde::Deserialize<'de> for CompressedDecaf {
 impl zeroize::DefaultIsZeroes for CompressedDecaf {}
 
 impl CompressedDecaf {
-    /// The compressed identity point
-    pub const IDENTITY: Self = Self([0u8; 56]);
-
     /// The compressed generator point
     pub const GENERATOR: Self = Self([
         102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102,
         102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51,
         51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51,
     ]);
+    /// The compressed identity point
+    pub const IDENTITY: Self = Self([0u8; 56]);
 
     /// Decompress a point if it is valid
     pub fn decompress(&self) -> CtOption<DecafPoint> {

@@ -66,10 +66,12 @@ impl ExtensiblePoint {
             T2: H,
         }
     }
+
     /// Adds two extensible points together by converting the other point to a ExtendedPoint
     pub fn add_extensible(&self, other: &ExtensiblePoint) -> ExtensiblePoint {
         self.add_extended(&other.to_extended())
     }
+
     /// Adds an extensible point to an extended point
     /// Returns an extensible point
     /// (3.1) https://iacr.org/archive/asiacrypt2008/53500329/53500329.pdf
@@ -90,6 +92,7 @@ impl ExtensiblePoint {
             Z: F * G,
         }
     }
+
     /// Subtracts an extensible point from an extended point
     /// Returns an extensible point
     /// This is a direct modification of the addition formula to the negation of `other`
@@ -129,6 +132,7 @@ impl ExtensiblePoint {
             T2: D,
         }
     }
+
     /// Adds an extensible point to a ProjectiveNiels point
     /// Returns an extensible point
     /// (3.1)[Last set of formulas] https://iacr.org/archive/asiacrypt2008/53500329/53500329.pdf
@@ -153,6 +157,7 @@ impl ExtensiblePoint {
             T2: D,
         }
     }
+
     /// Converts an extensible point to an extended point
     pub fn to_extended(&self) -> ExtendedPoint {
         ExtendedPoint {
@@ -162,6 +167,7 @@ impl ExtensiblePoint {
             T: self.T1 * self.T2,
         }
     }
+
     /// Converts an Extensible point to a ProjectiveNiels Point
     pub fn to_projective_niels(&self) -> ProjectiveNielsPoint {
         ProjectiveNielsPoint {
