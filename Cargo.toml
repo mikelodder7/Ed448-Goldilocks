@@ -11,10 +11,9 @@ license = "BSD-3-Clause"
 name = "ed448-goldilocks-plus"
 readme = "README.md"
 repository = "https://github.com/mikelodder7/Ed448-Goldilocks"
-version = "0.13.1"
+version = "0.13.2"
 
 [dependencies]
-crypto-bigint = { version = "0.5", features = ["generic-array"] }
 elliptic-curve = { version = "0.13", features = ["arithmetic", "bits", "hash2curve", "hazmat", "jwk", "pkcs8", "pem", "sec1"] }
 subtle = { version = "2.6", default-features = false }
 rand_core = { version = "0.6", default-features = false }
