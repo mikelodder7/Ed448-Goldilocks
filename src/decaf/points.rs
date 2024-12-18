@@ -3,6 +3,9 @@ use crate::curve::twedwards::extended::ExtendedPoint;
 use crate::field::FieldElement;
 use crate::*;
 
+#[cfg(any(feature = "alloc", feature = "std"))]
+use alloc::string::{String, ToString};
+
 use elliptic_curve::{
     generic_array::{
         typenum::{U56, U84},
@@ -492,6 +495,7 @@ impl TryFrom<Box<[u8]>> for CompressedDecaf {
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<DecafPointBytes> for CompressedDecaf {
     type Error = String;
 
@@ -503,6 +507,7 @@ impl TryFrom<DecafPointBytes> for CompressedDecaf {
     }
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl TryFrom<&DecafPointBytes> for CompressedDecaf {
     type Error = String;
 
