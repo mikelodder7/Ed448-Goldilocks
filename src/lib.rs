@@ -45,8 +45,6 @@ extern crate std;
 
 #[cfg(all(feature = "alloc", not(feature = "std")))]
 use alloc::{boxed::Box, string::ToString, vec::Vec};
-#[cfg(feature = "std")]
-use std::{boxed::Box, string::ToString, vec::Vec};
 
 // Internal macros. Must come first!
 #[macro_use]

@@ -3,7 +3,7 @@ use crate::curve::twedwards::extended::ExtendedPoint;
 use crate::field::FieldElement;
 use crate::*;
 
-#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(all(feature = "alloc", not(feature = "std")))]
 use alloc::string::{String, ToString};
 
 use elliptic_curve::{
