@@ -696,6 +696,7 @@ impl ShrAssign<usize> for Scalar {
     }
 }
 
+#[cfg(feature = "zeroize")]
 impl From<&Scalar> for Ed448ScalarBits {
     fn from(scalar: &Scalar) -> Self {
         scalar.0.into()

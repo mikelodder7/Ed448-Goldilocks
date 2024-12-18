@@ -27,8 +27,6 @@ pub const DEFAULT_HASH_TO_CURVE_SUITE: &[u8] = b"edwards448_XOF:SHAKE256_ELL2_RO
 /// The default encode to curve domain separation tag
 pub const DEFAULT_ENCODE_TO_CURVE_SUITE: &[u8] = b"edwards448_XOF:SHAKE256_ELL2_NU_";
 
-#[allow(non_snake_case)]
-
 /// The compressed internal representation of a point on the Twisted Edwards Curve
 pub type PointBytes = [u8; 57];
 

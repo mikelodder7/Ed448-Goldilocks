@@ -44,7 +44,7 @@ extern crate alloc;
 extern crate std;
 
 #[cfg(all(feature = "alloc", not(feature = "std")))]
-use alloc::{boxed::Box, string::ToString, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 
 // Internal macros. Must come first!
 #[macro_use]
@@ -75,7 +75,7 @@ use elliptic_curve::{
     bigint::{ArrayEncoding, ByteArray, U448},
     generic_array::typenum::U57,
     point::PointCompression,
-    Curve, CurveArithmetic, FieldBytesEncoding,
+    Curve, FieldBytesEncoding,
 };
 
 /// Edwards448 curve.
@@ -118,7 +118,8 @@ impl FieldBytesEncoding<Ed448> for U448 {
     }
 }
 
-impl CurveArithmetic for Ed448 {
+#[cfg(feature = "zeroize")]
+impl elliptic_curve::CurveArithmetic for Ed448 {
     type AffinePoint = AffinePoint;
     type ProjectivePoint = EdwardsPoint;
     type Scalar = Scalar;
@@ -164,7 +165,8 @@ impl FieldBytesEncoding<Decaf448> for U448 {
     }
 }
 
-impl CurveArithmetic for Decaf448 {
+#[cfg(feature = "zeroize")]
+impl elliptic_curve::CurveArithmetic for Decaf448 {
     type AffinePoint = DecafAffinePoint;
     type ProjectivePoint = DecafPoint;
     type Scalar = Scalar;

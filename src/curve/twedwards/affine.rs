@@ -4,10 +4,11 @@ use crate::field::FieldElement;
 use subtle::{Choice, ConditionallySelectable};
 
 /// This point representation is not a part of the API.
+///
 /// AffinePoint is mainly used as a convenience struct.
 /// XXX: Initially, I wanted to leave some of these in the library to help
 /// others learn. So if you are scrubbing the commit history. Hopefully they were helpful.
-
+///
 /// Represents an AffinePoint on the Twisted Edwards Curve
 /// with Equation y^2 - x^2 = 1 - (TWISTED_D) * x^2 * y^2
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
