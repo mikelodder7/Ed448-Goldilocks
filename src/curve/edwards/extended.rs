@@ -794,10 +794,10 @@ impl EdwardsPoint {
 // Addition and Subtraction
 // ------------------------------------------------------------------------
 
-impl<'a, 'b> Add<&'b EdwardsPoint> for &'a EdwardsPoint {
+impl Add<&EdwardsPoint> for &EdwardsPoint {
     type Output = EdwardsPoint;
 
-    fn add(self, other: &'b EdwardsPoint) -> EdwardsPoint {
+    fn add(self, other: &EdwardsPoint) -> EdwardsPoint {
         self.add(other)
     }
 }
@@ -852,10 +852,10 @@ impl AddAssign<&EdwardsPoint> for AffinePoint {
 
 define_add_assign_variants!(LHS = AffinePoint, RHS = EdwardsPoint);
 
-impl<'a, 'b> Sub<&'b EdwardsPoint> for &'a EdwardsPoint {
+impl Sub<&EdwardsPoint> for &EdwardsPoint {
     type Output = EdwardsPoint;
 
-    fn sub(self, other: &'b EdwardsPoint) -> EdwardsPoint {
+    fn sub(self, other: &EdwardsPoint) -> EdwardsPoint {
         self.add(&other.negate())
     }
 }
@@ -926,7 +926,7 @@ where
 // Negation
 // ------------------------------------------------------------------------
 
-impl<'a> Neg for &'a EdwardsPoint {
+impl Neg for &EdwardsPoint {
     type Output = EdwardsPoint;
 
     fn neg(self) -> EdwardsPoint {
@@ -958,20 +958,20 @@ define_mul_assign_variants!(LHS = EdwardsPoint, RHS = Scalar);
 define_mul_variants!(LHS = EdwardsPoint, RHS = Scalar, Output = EdwardsPoint);
 define_mul_variants!(LHS = Scalar, RHS = EdwardsPoint, Output = EdwardsPoint);
 
-impl<'a, 'b> Mul<&'b Scalar> for &'a EdwardsPoint {
+impl Mul<&Scalar> for &EdwardsPoint {
     type Output = EdwardsPoint;
 
     /// Scalar multiplication: compute `scalar * self`.
-    fn mul(self, scalar: &'b Scalar) -> EdwardsPoint {
+    fn mul(self, scalar: &Scalar) -> EdwardsPoint {
         self.scalar_mul(scalar)
     }
 }
 
-impl<'a, 'b> Mul<&'b EdwardsPoint> for &'a Scalar {
+impl Mul<&EdwardsPoint> for &Scalar {
     type Output = EdwardsPoint;
 
     /// Scalar multiplication: compute `scalar * self`.
-    fn mul(self, point: &'b EdwardsPoint) -> EdwardsPoint {
+    fn mul(self, point: &EdwardsPoint) -> EdwardsPoint {
         point * self
     }
 }
