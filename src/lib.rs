@@ -61,6 +61,8 @@ pub(crate) mod curve;
 pub(crate) mod decaf;
 pub(crate) mod field;
 pub(crate) mod ristretto;
+#[cfg(feature = "signing")]
+pub(crate) mod sign;
 
 pub(crate) use field::{GOLDILOCKS_BASE_POINT, TWISTED_EDWARDS_BASE_POINT};
 
@@ -70,12 +72,14 @@ pub use curve::{
 pub use decaf::{AffinePoint as DecafAffinePoint, CompressedDecaf, DecafPoint};
 pub use field::{Scalar, ScalarBytes, WideScalarBytes, MODULUS_LIMBS, ORDER, WIDE_ORDER};
 pub use ristretto::{CompressedRistretto, RistrettoPoint};
+#[cfg(feature = "signing")]
+pub use sign::*;
 
 use elliptic_curve::{
     bigint::{ArrayEncoding, ByteArray, U448},
     generic_array::typenum::U57,
     point::PointCompression,
-    Curve, FieldBytesEncoding,
+    Curve, FieldBytesEncoding, PrimeCurve,
 };
 
 /// Edwards448 curve.
@@ -100,6 +104,8 @@ impl Curve for Ed448 {
 
     const ORDER: U448 = ORDER;
 }
+
+impl PrimeCurve for Ed448 {}
 
 impl PointCompression for Ed448 {
     const COMPRESS_POINTS: bool = true;
@@ -147,6 +153,8 @@ impl Curve for Decaf448 {
 
     const ORDER: U448 = ORDER;
 }
+
+impl PrimeCurve for Decaf448 {}
 
 impl PointCompression for Decaf448 {
     const COMPRESS_POINTS: bool = true;

@@ -976,6 +976,11 @@ impl Scalar {
         add(&lo, &hi).add(top)
     }
 
+    /// Construct a Scalar by reducing a 448-bit little-endian integer modulo the group order ℓ
+    pub fn from_bytes_mod_order(input: &ScalarBytes) -> Scalar {
+        Scalar::reduce(U448::from_le_slice(&input[..56]))
+    }
+
     /// Return a `Scalar` chosen uniformly at random using a user-provided RNG.
     ///
     /// # Inputs
