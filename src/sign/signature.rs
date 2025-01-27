@@ -2,6 +2,7 @@ use crate::{
     CompressedEdwardsY, EdwardsPoint, Scalar, ScalarBytes, SigningError, SECRET_KEY_LENGTH,
     SIGNATURE_LENGTH,
 };
+use elliptic_curve::Group;
 
 /// Ed448 signature as defined in [RFC8032 § 5.2.5]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -45,15 +46,9 @@ impl TryFrom<&[u8]> for Signature {
             return Err(SigningError::InvalidSignatureLength);
         }
 
-        let mut r = [0u8; SECRET_KEY_LENGTH];
-        r.copy_from_slice(&value[..SECRET_KEY_LENGTH]);
-        let mut s = [0u8; SECRET_KEY_LENGTH];
-        s.copy_from_slice(&value[SECRET_KEY_LENGTH..]);
-
-        Ok(Self {
-            r: CompressedEdwardsY(r),
-            s,
-        })
+        let mut bytes = [0u8; SIGNATURE_LENGTH];
+        bytes.copy_from_slice(value);
+        Self::from_bytes(&bytes)
     }
 }
 
@@ -63,6 +58,28 @@ impl TryFrom<Box<[u8]>> for Signature {
 
     fn try_from(value: Box<[u8]>) -> Result<Self, Self::Error> {
         Self::try_from(value.as_ref())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serdect::serde::Serialize for Signature {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serdect::serde::Serializer,
+    {
+        serdect::array::serialize_hex_lower_or_bin(&self.to_bytes(), s)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serdect::serde::Deserialize<'de> for Signature {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serdect::serde::Deserializer<'de>,
+    {
+        let mut bytes = [0u8; SIGNATURE_LENGTH];
+        serdect::array::deserialize_hex_or_bin(&mut bytes, d)?;
+        Signature::from_bytes(&bytes).map_err(serdect::serde::de::Error::custom)
     }
 }
 
@@ -76,15 +93,39 @@ impl Signature {
     }
 
     /// Converts a byte array to a [`Signature`].
-    pub fn from_bytes(bytes: &[u8; SIGNATURE_LENGTH]) -> Self {
+    pub fn from_bytes(bytes: &[u8; SIGNATURE_LENGTH]) -> Result<Self, SigningError> {
         let mut r = [0u8; SECRET_KEY_LENGTH];
         r.copy_from_slice(&bytes[..SECRET_KEY_LENGTH]);
         let mut s = [0u8; SECRET_KEY_LENGTH];
         s.copy_from_slice(&bytes[SECRET_KEY_LENGTH..]);
-        Self {
-            r: CompressedEdwardsY(r),
-            s,
+
+        let r = CompressedEdwardsY(r);
+
+        let big_r = r.decompress();
+        if big_r.is_none().into() {
+            return Err(SigningError::InvalidSignatureRComponent);
         }
+
+        let big_r = big_r.expect("big_r is not none");
+        if big_r.is_identity().into() {
+            return Err(SigningError::InvalidSignatureRComponent);
+        }
+
+        if s[56] != 0x00 {
+            return Err(SigningError::InvalidSignatureSComponent);
+        }
+        let s_bytes = ScalarBytes::from_slice(&s);
+        let ss = Scalar::from_canonical_bytes(s_bytes);
+
+        if ss.is_none().into() {
+            return Err(SigningError::InvalidSignatureSComponent);
+        }
+        let sc = ss.expect("ss is not none");
+        if sc.is_zero().into() {
+            return Err(SigningError::InvalidSignatureSComponent);
+        }
+
+        Ok(Self { r, s })
     }
 
     /// The `r` value of the signature.
@@ -125,4 +166,23 @@ impl TryFrom<Signature> for InnerSignature {
 pub(crate) struct InnerSignature {
     pub(crate) r: EdwardsPoint,
     pub(crate) s: Scalar,
+}
+
+#[cfg(feature = "serde")]
+#[test]
+fn serialization() {
+    use rand_chacha::ChaCha8Rng;
+    use rand_core::SeedableRng;
+
+    let mut rng = ChaCha8Rng::from_seed([0u8; 32]);
+    let signing_key = super::SigningKey::generate(&mut rng);
+    let signature = signing_key.sign_raw(b"Hello, World!").unwrap();
+
+    let bytes = serde_bare::to_vec(&signature).unwrap();
+    let signature2: Signature = serde_bare::from_slice(&bytes).unwrap();
+    assert_eq!(signature, signature2);
+
+    let string = serde_json::to_string(&signature).unwrap();
+    let signature3: Signature = serde_json::from_str(&string).unwrap();
+    assert_eq!(signature, signature3);
 }

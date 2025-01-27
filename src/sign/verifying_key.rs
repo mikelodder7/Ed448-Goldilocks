@@ -5,12 +5,13 @@ use crate::curve::edwards::extended::PointBytes;
 use crate::sign::HASH_HEAD;
 use crate::{
     CompressedEdwardsY, Context, EdwardsPoint, Scalar, ScalarBytes, Signature, SigningError,
-    SigningHash, WideScalarBytes,
+    SigningHash, WideScalarBytes, PUBLIC_KEY_LENGTH,
 };
 use core::{
     fmt::{self, Debug, Formatter},
     hash::{Hash, Hasher},
 };
+use elliptic_curve::Group;
 use sha3::{
     digest::{ExtendableOutput, Update, XofReader},
     Digest, Shake256,
@@ -83,6 +84,112 @@ where
     }
 }
 
+#[cfg(feature = "pkcs8")]
+/// This type is primarily useful for decoding/encoding SPKI public key files (either DER or PEM)
+pub struct PublicKeyBytes(pub [u8; PUBLIC_KEY_LENGTH]);
+
+#[cfg(feature = "pkcs8")]
+impl TryFrom<PublicKeyBytes> for VerifyingKey {
+    type Error = pkcs8::spki::Error;
+
+    fn try_from(value: PublicKeyBytes) -> Result<Self, Self::Error> {
+        VerifyingKey::try_from(&value)
+    }
+}
+
+#[cfg(feature = "pkcs8")]
+impl TryFrom<&PublicKeyBytes> for VerifyingKey {
+    type Error = pkcs8::spki::Error;
+
+    fn try_from(value: &PublicKeyBytes) -> Result<Self, Self::Error> {
+        VerifyingKey::from_bytes(&value.0).map_err(|_| pkcs8::spki::Error::KeyMalformed)
+    }
+}
+
+#[cfg(feature = "pkcs8")]
+impl From<VerifyingKey> for PublicKeyBytes {
+    fn from(key: VerifyingKey) -> Self {
+        Self(key.compressed.to_bytes())
+    }
+}
+
+#[cfg(feature = "pkcs8")]
+impl pkcs8::EncodePublicKey for PublicKeyBytes {
+    fn to_public_key_der(&self) -> pkcs8::spki::Result<pkcs8::Document> {
+        pkcs8::SubjectPublicKeyInfoRef {
+            algorithm: super::ALGORITHM_ID,
+            subject_public_key: pkcs8::der::asn1::BitStringRef::new(0, &self.0)?,
+        }
+        .try_into()
+    }
+}
+
+#[cfg(feature = "pkcs8")]
+impl TryFrom<pkcs8::spki::SubjectPublicKeyInfoRef<'_>> for PublicKeyBytes {
+    type Error = pkcs8::spki::Error;
+
+    fn try_from(value: pkcs8::spki::SubjectPublicKeyInfoRef<'_>) -> Result<Self, Self::Error> {
+        value.algorithm.assert_algorithm_oid(super::ALGORITHM_OID)?;
+
+        if value.algorithm.parameters.is_some() {
+            return Err(pkcs8::spki::Error::KeyMalformed);
+        }
+
+        value
+            .subject_public_key
+            .as_bytes()
+            .ok_or(pkcs8::spki::Error::KeyMalformed)?
+            .try_into()
+            .map(Self)
+            .map_err(|_| pkcs8::spki::Error::KeyMalformed)
+    }
+}
+
+#[cfg(all(any(feature = "alloc", feature = "std"), feature = "pkcs8"))]
+impl pkcs8::EncodePublicKey for VerifyingKey {
+    fn to_public_key_der(&self) -> pkcs8::spki::Result<pkcs8::Document> {
+        PublicKeyBytes::from(*self).to_public_key_der()
+    }
+}
+
+#[cfg(all(feature = "alloc", feature = "pkcs8"))]
+impl pkcs8::spki::DynSignatureAlgorithmIdentifier for VerifyingKey {
+    fn signature_algorithm_identifier(
+        &self,
+    ) -> pkcs8::spki::Result<pkcs8::spki::AlgorithmIdentifierOwned> {
+        // From https://datatracker.ietf.org/doc/html/rfc8410
+        Ok(pkcs8::spki::AlgorithmIdentifierOwned {
+            oid: super::ALGORITHM_OID,
+            parameters: None,
+        })
+    }
+}
+
+#[cfg(feature = "pkcs8")]
+impl TryFrom<pkcs8::spki::SubjectPublicKeyInfoRef<'_>> for VerifyingKey {
+    type Error = pkcs8::spki::Error;
+
+    fn try_from(public_key: pkcs8::spki::SubjectPublicKeyInfoRef<'_>) -> pkcs8::spki::Result<Self> {
+        PublicKeyBytes::try_from(public_key)?.try_into()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serdect::serde::Serialize for VerifyingKey {
+    fn serialize<S: serdect::serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        serdect::array::serialize_hex_lower_or_bin(self.compressed.as_bytes(), s)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serdect::serde::Deserialize<'de> for VerifyingKey {
+    fn deserialize<D: serdect::serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let mut bytes = [0u8; PUBLIC_KEY_LENGTH];
+        serdect::array::deserialize_hex_or_bin(&mut bytes, d)?;
+        VerifyingKey::from_bytes(&bytes).map_err(serdect::serde::de::Error::custom)
+    }
+}
+
 impl VerifyingKey {
     /// Convert this verifying key into byte slice
     pub fn to_bytes(&self) -> PointBytes {
@@ -97,8 +204,11 @@ impl VerifyingKey {
     /// Construct a `VerifyingKey` from a slice of bytes.
     pub fn from_bytes(bytes: &PointBytes) -> Result<Self, Error> {
         let compressed = CompressedEdwardsY(*bytes);
-        let point =
-            Option::from(compressed.decompress()).ok_or(SigningError::InvalidPublicKeyBytes)?;
+        let point = Option::<EdwardsPoint>::from(compressed.decompress())
+            .ok_or(SigningError::InvalidPublicKeyBytes)?;
+        if point.is_identity().into() {
+            return Err(SigningError::InvalidPublicKeyBytes.into());
+        }
         Ok(Self { compressed, point })
     }
 
@@ -173,17 +283,29 @@ impl VerifyingKey {
         ctx: &[u8],
         m: &[u8],
     ) -> Result<(), Error> {
+        // `signature` should already be valid but check to make sure
         // Note that the scalar itself uses only 56 bytes; the extra
         // 57th byte must be 0x00.
         if signature.s[56] != 0x00 {
             return Err(SigningError::InvalidSignatureSComponent.into());
         }
+        if self.point.is_identity().into() {
+            return Err(SigningError::InvalidPublicKeyBytes.into());
+        }
 
         let r = Option::<EdwardsPoint>::from(signature.r.decompress())
             .ok_or(SigningError::InvalidSignatureRComponent)?;
+        if r.is_identity().into() {
+            return Err(SigningError::InvalidSignatureRComponent.into());
+        }
+
         let s_bytes = ScalarBytes::from_slice(&signature.s);
         let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(s_bytes))
             .ok_or(SigningError::InvalidSignatureSComponent)?;
+
+        if s.is_zero().into() {
+            return Err(SigningError::InvalidSignatureSComponent.into());
+        }
 
         // SHAKE256(dom4(F, C) || R || A || PH(M), 114) -> scalar k
         let mut bytes = WideScalarBytes::default();
@@ -330,5 +452,24 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serialization() {
+        use rand_chacha::ChaCha8Rng;
+        use rand_core::SeedableRng;
+
+        let mut rng = ChaCha8Rng::from_seed([0u8; 32]);
+        let signing_key = SigningKey::generate(&mut rng);
+        let verifying_key = signing_key.verifying_key();
+
+        let bytes = serde_bare::to_vec(&verifying_key).unwrap();
+        let verifying_key2: VerifyingKey = serde_bare::from_slice(&bytes).unwrap();
+        assert_eq!(verifying_key, verifying_key2);
+
+        let string = serde_json::to_string(&verifying_key).unwrap();
+        let verifying_key3: VerifyingKey = serde_json::from_str(&string).unwrap();
+        assert_eq!(verifying_key, verifying_key3);
     }
 }

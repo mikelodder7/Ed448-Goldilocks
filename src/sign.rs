@@ -22,3 +22,14 @@ pub const SIGNATURE_LENGTH: usize = 114;
 
 /// Constant string "SigEd448".
 pub(crate) const HASH_HEAD: [u8; 8] = [0x53, 0x69, 0x67, 0x45, 0x64, 0x34, 0x34, 0x38];
+
+#[cfg(feature = "pkcs8")]
+/// The OID for Ed448 as defined in [RFC8410 §2]
+pub const ALGORITHM_OID: pkcs8::ObjectIdentifier =
+    pkcs8::ObjectIdentifier::new_unwrap("1.3.101.113");
+
+#[cfg(feature = "pkcs8")]
+pub const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::AlgorithmIdentifierRef {
+    oid: ALGORITHM_OID,
+    parameters: None,
+};

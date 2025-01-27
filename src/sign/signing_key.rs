@@ -283,17 +283,6 @@ impl signature::Verifier<Signature> for SigningKey {
     }
 }
 
-#[cfg(feature = "pkcs8")]
-/// The OID for Ed448 as defined in [RFC8410 §2]
-pub const ALGORITHM_OID: pkcs8::ObjectIdentifier =
-    pkcs8::ObjectIdentifier::new_unwrap("1.3.101.113");
-
-#[cfg(feature = "pkcs8")]
-pub const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::AlgorithmIdentifierRef {
-    oid: ALGORITHM_OID,
-    parameters: None,
-};
-
 #[cfg(all(any(feature = "alloc", feature = "std"), feature = "pkcs8"))]
 impl pkcs8::EncodePrivateKey for SigningKey {
     fn to_pkcs8_der(&self) -> pkcs8::Result<pkcs8::SecretDocument> {
@@ -308,7 +297,7 @@ impl pkcs8::spki::DynSignatureAlgorithmIdentifier for SigningKey {
     ) -> pkcs8::spki::Result<pkcs8::spki::AlgorithmIdentifierOwned> {
         // See https://datatracker.ietf.org/doc/html/rfc8410 for id-Ed448
         Ok(pkcs8::spki::AlgorithmIdentifier {
-            oid: ALGORITHM_OID,
+            oid: super::ALGORITHM_OID,
             parameters: None,
         })
     }
@@ -329,7 +318,7 @@ impl pkcs8::EncodePrivateKey for KeypairBytes {
         private_key[2..].copy_from_slice(self.secret_key.as_ref());
 
         let private_key_info = pkcs8::PrivateKeyInfo {
-            algorithm: ALGORITHM_ID,
+            algorithm: super::ALGORITHM_ID,
             private_key: &private_key,
             public_key: self.verifying_key.as_ref().map(|v| v.as_ref()),
         };
@@ -347,18 +336,21 @@ impl TryFrom<pkcs8::PrivateKeyInfo<'_>> for KeypairBytes {
     type Error = pkcs8::Error;
 
     fn try_from(value: pkcs8::PrivateKeyInfo<'_>) -> Result<Self, Self::Error> {
-        if value.algorithm.oid != ALGORITHM_OID {
+        if value.algorithm.oid != super::ALGORITHM_OID {
             return Err(pkcs8::Error::KeyMalformed);
         }
         if value.private_key.len() != SECRET_KEY_LENGTH {
             return Err(pkcs8::Error::KeyMalformed);
         }
-        let secret_key = PointBytes::from(value.private_key);
+        let mut secret_key = [0u8; SECRET_KEY_LENGTH];
+        secret_key.copy_from_slice(value.private_key);
         let verifying_key = if let Some(public_key) = value.public_key {
             if public_key.len() != PUBLIC_KEY_LENGTH {
                 return Err(pkcs8::Error::KeyMalformed);
             }
-            Some(PointBytes::from(public_key))
+            let mut bytes = [0u8; PUBLIC_KEY_LENGTH];
+            bytes.copy_from_slice(public_key);
+            Some(bytes)
         } else {
             None
         };
@@ -388,7 +380,7 @@ impl TryFrom<&KeypairBytes> for SigningKey {
         if let Some(public_bytes) = value.verifying_key {
             let verifying_key =
                 VerifyingKey::from_bytes(&public_bytes).map_err(|_| pkcs8::Error::KeyMalformed)?;
-            if !signing_key.verifying_key() != &verifying_key {
+            if signing_key.verifying_key() != verifying_key {
                 return Err(pkcs8::Error::KeyMalformed);
             }
         }
@@ -421,7 +413,7 @@ impl serdect::serde::Serialize for SigningKey {
     where
         S: serdect::serde::Serializer,
     {
-        serdect::array::serialize_hex_lower_or_bin(self.secret.seed.as_ref(), s)
+        serdect::array::serialize_hex_lower_or_bin(&self.secret.seed, s)
     }
 }
 
@@ -439,7 +431,7 @@ impl<'de> serdect::serde::Deserialize<'de> for SigningKey {
 
 impl SigningKey {
     /// Generate a cryptographically random [`SigningKey`].
-    pub fn generate(mut rng: impl rand_core::RngCore) -> Self {
+    pub fn generate(mut rng: impl rand_core::CryptoRngCore) -> Self {
         let mut secret_scalar = SecretKey::default();
         rng.fill_bytes(secret_scalar.as_mut());
         assert!(!secret_scalar.iter().all(|&v| v == 0));
@@ -511,4 +503,21 @@ impl SigningKey {
             .sign_prehashed(context.unwrap_or_default(), &m)?;
         Ok(sig.into())
     }
+}
+#[cfg(feature = "serde")]
+#[test]
+fn serialization() {
+    use rand_chacha::ChaCha8Rng;
+    use rand_core::SeedableRng;
+
+    let mut rng = ChaCha8Rng::from_seed([0u8; 32]);
+    let signing_key = SigningKey::generate(&mut rng);
+
+    let bytes = serde_bare::to_vec(&signing_key).unwrap();
+    let signing_key2: SigningKey = serde_bare::from_slice(&bytes).unwrap();
+    assert_eq!(signing_key, signing_key2);
+
+    let string = serde_json::to_string(&signing_key).unwrap();
+    let signing_key3: SigningKey = serde_json::from_str(&string).unwrap();
+    assert_eq!(signing_key, signing_key3);
 }
