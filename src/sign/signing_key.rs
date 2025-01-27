@@ -1,16 +1,19 @@
 //! Much of this code is borrowed from Thomas Pornin's [CRRL Project](https://github.com/pornin/crrl/blob/main/src/ed448.rs)
 //! and adapted to mirror `ed25519-dalek`'s API.
 
+use crate::curve::edwards::extended::PointBytes;
 use crate::sign::expanded::ExpandedSecretKey;
-use crate::{Context, Scalar, ScalarBytes, Signature, VerifyingKey, SECRET_KEY_LENGTH};
-use core::fmt::{self, Debug, Formatter};
-use sha3::digest::consts::U64;
-use sha3::digest::crypto_common::BlockSizeUser;
-use sha3::digest::typenum::IsEqual;
-use sha3::digest::{
-    ExtendableOutput, FixedOutput, FixedOutputReset, HashMarker, Update, XofReader,
+use crate::{
+    Context, Scalar, ScalarBytes, Signature, VerifyingKey, PUBLIC_KEY_LENGTH, SECRET_KEY_LENGTH,
 };
-use sha3::Digest;
+use core::fmt::{self, Debug, Formatter};
+use sha3::{
+    digest::{
+        consts::U64, crypto_common::BlockSizeUser, typenum::IsEqual, ExtendableOutput, FixedOutput,
+        FixedOutputReset, HashMarker, Update, XofReader,
+    },
+    Digest,
+};
 use signature::Error;
 use subtle::{Choice, ConstantTimeEq};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -277,6 +280,160 @@ where
 impl signature::Verifier<Signature> for SigningKey {
     fn verify(&self, msg: &[u8], signature: &Signature) -> Result<(), Error> {
         self.secret.public_key.verify_raw(signature, msg)
+    }
+}
+
+#[cfg(feature = "pkcs8")]
+/// The OID for Ed448 as defined in [RFC8410 §2]
+pub const ALGORITHM_OID: pkcs8::ObjectIdentifier =
+    pkcs8::ObjectIdentifier::new_unwrap("1.3.101.113");
+
+#[cfg(feature = "pkcs8")]
+pub const ALGORITHM_ID: pkcs8::AlgorithmIdentifierRef<'static> = pkcs8::AlgorithmIdentifierRef {
+    oid: ALGORITHM_OID,
+    parameters: None,
+};
+
+#[cfg(all(any(feature = "alloc", feature = "std"), feature = "pkcs8"))]
+impl pkcs8::EncodePrivateKey for SigningKey {
+    fn to_pkcs8_der(&self) -> pkcs8::Result<pkcs8::SecretDocument> {
+        KeypairBytes::from(self).to_pkcs8_der()
+    }
+}
+
+#[cfg(all(any(feature = "alloc", feature = "std"), feature = "pkcs8"))]
+impl pkcs8::spki::DynSignatureAlgorithmIdentifier for SigningKey {
+    fn signature_algorithm_identifier(
+        &self,
+    ) -> pkcs8::spki::Result<pkcs8::spki::AlgorithmIdentifierOwned> {
+        // See https://datatracker.ietf.org/doc/html/rfc8410 for id-Ed448
+        Ok(pkcs8::spki::AlgorithmIdentifier {
+            oid: ALGORITHM_OID,
+            parameters: None,
+        })
+    }
+}
+
+#[cfg(feature = "pkcs8")]
+pub struct KeypairBytes {
+    pub secret_key: PointBytes,
+    pub verifying_key: Option<PointBytes>,
+}
+
+#[cfg(all(any(feature = "alloc", feature = "std"), feature = "pkcs8"))]
+impl pkcs8::EncodePrivateKey for KeypairBytes {
+    fn to_pkcs8_der(&self) -> pkcs8::Result<pkcs8::SecretDocument> {
+        let mut private_key = [0u8; 2 + SECRET_KEY_LENGTH];
+        private_key[0] = 0x04;
+        private_key[1] = SECRET_KEY_LENGTH as u8;
+        private_key[2..].copy_from_slice(self.secret_key.as_ref());
+
+        let private_key_info = pkcs8::PrivateKeyInfo {
+            algorithm: ALGORITHM_ID,
+            private_key: &private_key,
+            public_key: self.verifying_key.as_ref().map(|v| v.as_ref()),
+        };
+        let result = pkcs8::SecretDocument::encode_msg(&private_key_info)?;
+
+        #[cfg(feature = "zeroize")]
+        private_key.zeroize();
+
+        Ok(result)
+    }
+}
+
+#[cfg(feature = "pkcs8")]
+impl TryFrom<pkcs8::PrivateKeyInfo<'_>> for KeypairBytes {
+    type Error = pkcs8::Error;
+
+    fn try_from(value: pkcs8::PrivateKeyInfo<'_>) -> Result<Self, Self::Error> {
+        if value.algorithm.oid != ALGORITHM_OID {
+            return Err(pkcs8::Error::KeyMalformed);
+        }
+        if value.private_key.len() != SECRET_KEY_LENGTH {
+            return Err(pkcs8::Error::KeyMalformed);
+        }
+        let secret_key = PointBytes::from(value.private_key);
+        let verifying_key = if let Some(public_key) = value.public_key {
+            if public_key.len() != PUBLIC_KEY_LENGTH {
+                return Err(pkcs8::Error::KeyMalformed);
+            }
+            Some(PointBytes::from(public_key))
+        } else {
+            None
+        };
+        Ok(KeypairBytes {
+            secret_key,
+            verifying_key,
+        })
+    }
+}
+
+#[cfg(feature = "pkcs8")]
+impl TryFrom<KeypairBytes> for SigningKey {
+    type Error = pkcs8::Error;
+
+    fn try_from(value: KeypairBytes) -> Result<Self, Self::Error> {
+        Self::try_from(&value)
+    }
+}
+
+#[cfg(feature = "pkcs8")]
+impl TryFrom<&KeypairBytes> for SigningKey {
+    type Error = pkcs8::Error;
+
+    fn try_from(value: &KeypairBytes) -> Result<Self, Self::Error> {
+        let signing_key = SigningKey::from(SecretKey::from_slice(value.secret_key.as_ref()));
+
+        if let Some(public_bytes) = value.verifying_key {
+            let verifying_key =
+                VerifyingKey::from_bytes(&public_bytes).map_err(|_| pkcs8::Error::KeyMalformed)?;
+            if !signing_key.verifying_key() != &verifying_key {
+                return Err(pkcs8::Error::KeyMalformed);
+            }
+        }
+        Ok(signing_key)
+    }
+}
+
+#[cfg(feature = "pkcs8")]
+impl From<&SigningKey> for KeypairBytes {
+    fn from(signing_key: &SigningKey) -> Self {
+        KeypairBytes {
+            secret_key: PointBytes::from(signing_key.to_bytes()),
+            verifying_key: Some(PointBytes::from(signing_key.verifying_key().to_bytes())),
+        }
+    }
+}
+
+#[cfg(feature = "pkcs8")]
+impl TryFrom<pkcs8::PrivateKeyInfo<'_>> for SigningKey {
+    type Error = pkcs8::Error;
+
+    fn try_from(value: pkcs8::PrivateKeyInfo<'_>) -> Result<Self, Self::Error> {
+        KeypairBytes::try_from(value)?.try_into()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl serdect::serde::Serialize for SigningKey {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serdect::serde::Serializer,
+    {
+        serdect::array::serialize_hex_lower_or_bin(self.secret.seed.as_ref(), s)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serdect::serde::Deserialize<'de> for SigningKey {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serdect::serde::Deserializer<'de>,
+    {
+        let mut bytes = SecretKey::default();
+        serdect::array::deserialize_hex_or_bin(&mut bytes, d)?;
+        Ok(SigningKey::from(bytes))
     }
 }
 
