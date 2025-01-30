@@ -1,5 +1,3 @@
-#![allow(non_snake_case)]
-
 use crate::curve::twedwards::extended::ExtendedPoint;
 use crate::curve::twedwards::projective::ProjectiveNielsPoint;
 use subtle::{ConditionallySelectable, ConstantTimeEq};

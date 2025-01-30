@@ -75,7 +75,8 @@ impl FromOkm for FieldElement {
         let mut num = U704::from_be_slice(&tmp[..]);
         num %= SEMI_WIDE_MODULUS;
 
-        let bytes = <[u8; 56]>::try_from(&num.to_le_bytes()[..56]).unwrap();
+        let bytes =
+            <[u8; 56]>::try_from(&num.to_le_bytes()[..56]).expect("slice is the wrong length");
         FieldElement(ResidueType::new(&U448::from_le_slice(&bytes)))
     }
 }

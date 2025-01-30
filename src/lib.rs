@@ -37,6 +37,17 @@
 #![warn(unused_attributes, unused_imports, unused_mut, unused_must_use)]
 #![allow(non_snake_case)]
 #![cfg_attr(all(not(feature = "alloc"), not(feature = "std")), no_std)]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![warn(
+    missing_docs,
+    missing_debug_implementations,
+    missing_copy_implementations,
+    trivial_casts,
+    trivial_numeric_casts,
+    unused,
+    clippy::mod_module_files
+)]
+#![deny(clippy::unwrap_used)]
 
 #[cfg(all(feature = "alloc", not(feature = "std")))]
 extern crate alloc;

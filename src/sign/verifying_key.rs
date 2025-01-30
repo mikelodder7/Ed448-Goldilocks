@@ -4,19 +4,19 @@
 use crate::curve::edwards::extended::PointBytes;
 use crate::sign::HASH_HEAD;
 use crate::{
-    CompressedEdwardsY, Context, EdwardsPoint, Scalar, ScalarBytes, Signature, SigningError,
-    SigningHash, WideScalarBytes, PUBLIC_KEY_LENGTH,
+    CompressedEdwardsY, Context, EdwardsPoint, PreHash, Scalar, ScalarBytes, Signature,
+    SigningError, WideScalarBytes, PUBLIC_KEY_LENGTH,
 };
 use core::{
     fmt::{self, Debug, Formatter},
     hash::{Hash, Hasher},
 };
+use crypto_signature::Error;
 use elliptic_curve::Group;
 use sha3::{
     digest::{ExtendableOutput, Update, XofReader},
     Digest, Shake256,
 };
-use signature::Error;
 
 /// Ed448 public key as defined in [RFC8032 § 5.2.5]
 #[derive(Copy, Clone, Default, Eq)]
@@ -49,13 +49,13 @@ impl PartialEq for VerifyingKey {
     }
 }
 
-impl signature::Verifier<Signature> for VerifyingKey {
+impl crypto_signature::Verifier<Signature> for VerifyingKey {
     fn verify(&self, msg: &[u8], signature: &Signature) -> Result<(), Error> {
         self.verify_raw(signature, msg)
     }
 }
 
-impl<D> signature::DigestVerifier<D, Signature> for VerifyingKey
+impl<D> crypto_signature::DigestVerifier<D, Signature> for VerifyingKey
 where
     D: Digest,
 {
@@ -66,13 +66,13 @@ where
     }
 }
 
-impl signature::Verifier<Signature> for Context<'_, '_, VerifyingKey> {
+impl crypto_signature::Verifier<Signature> for Context<'_, '_, VerifyingKey> {
     fn verify(&self, msg: &[u8], signature: &Signature) -> Result<(), Error> {
         self.key.verify_ctx(signature, self.value, msg)
     }
 }
 
-impl<D> signature::DigestVerifier<D, Signature> for Context<'_, '_, VerifyingKey>
+impl<D> crypto_signature::DigestVerifier<D, Signature> for Context<'_, '_, VerifyingKey>
 where
     D: Digest,
 {
@@ -86,6 +86,7 @@ where
 
 #[cfg(feature = "pkcs8")]
 /// This type is primarily useful for decoding/encoding SPKI public key files (either DER or PEM)
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct PublicKeyBytes(pub [u8; PUBLIC_KEY_LENGTH]);
 
 #[cfg(feature = "pkcs8")]
@@ -246,17 +247,17 @@ impl VerifyingKey {
     ///
     /// Note: this function is not constant-time; it assumes that the
     /// public key and signature value are public data.
-    pub fn verify_ctx(self, sig: &Signature, ctx: &[u8], m: &[u8]) -> Result<(), Error> {
-        self.verify_inner(sig, 0, ctx, m)
+    pub fn verify_ctx(self, sig: &Signature, ctx: &[u8], message: &[u8]) -> Result<(), Error> {
+        self.verify_inner(sig, 0, ctx, message)
     }
 
     /// Verifies a signature on a hashed message.
     ///
     /// This is the "Ed448ph" mode of RFC 8032 (message is pre-hashed),
-    /// also known as "HashEdDSA on Curve448". The hashed message `hm`
+    /// also known as "HashEdDSA on Curve448". The hashed message `prehashed_message`
     /// is provided (presumably, that hash value was obtained with
     /// SHAKE256 and a 64-byte output; the caller does the hashing itself).
-    /// A context string is
+    /// A context string `ctx` is
     /// also provided; it MUST have length at most 255 bytes. Return
     /// value is `Ok` on a valid signature, `Error` otherwise.
     ///
@@ -265,15 +266,15 @@ impl VerifyingKey {
     pub fn verify_prehashed<D>(
         self,
         sig: &Signature,
-        ctx: &[u8],
+        ctx: Option<&[u8]>,
         mut prehashed_message: D,
     ) -> Result<(), Error>
     where
-        D: SigningHash,
+        D: PreHash,
     {
         let mut m = [0u8; 64];
         prehashed_message.fill_bytes(&mut m);
-        self.verify_inner(sig, 1, ctx, &m)
+        self.verify_inner(sig, 1, ctx.unwrap_or_default(), &m)
     }
 
     fn verify_inner(
@@ -335,7 +336,7 @@ impl VerifyingKey {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{SecretKey, SigningKey, SigningPreHasherXof, PUBLIC_KEY_LENGTH};
+    use crate::{PreHasherXof, SecretKey, SigningKey, PUBLIC_KEY_LENGTH};
 
     struct Ed448TestVector<'a> {
         s: &'a str,
@@ -420,9 +421,9 @@ mod tests {
             assert_eq!(&q_enc[..], skey.verifying_key().as_bytes());
             if tv.ph {
                 assert_eq!(
-                    skey.sign_prehashed::<SigningPreHasherXof<Shake256>>(
+                    skey.sign_prehashed::<PreHasherXof<Shake256>>(
+                        Some(&ctx[..]),
                         Shake256::default().chain(&msg).into(),
-                        Some(&ctx[..])
                     )
                     .unwrap(),
                     sig
@@ -430,7 +431,7 @@ mod tests {
             } else {
                 assert_eq!(skey.sign_ctx(&ctx[..], &msg[..]).unwrap(), sig);
                 if ctx.len() == 0 {
-                    assert_eq!(skey.sign_raw(&msg[..]).unwrap(), sig);
+                    assert_eq!(skey.sign_raw(&msg[..]), sig);
                 }
             }
 

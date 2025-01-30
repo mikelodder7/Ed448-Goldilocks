@@ -37,6 +37,7 @@ const LOW_C: MontgomeryPoint = MontgomeryPoint([
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 ]);
 
+/// A point in Montgomery form
 #[derive(Copy, Clone)]
 pub struct MontgomeryPoint(pub [u8; 56]);
 
@@ -68,7 +69,8 @@ impl PartialEq for MontgomeryPoint {
 }
 impl Eq for MontgomeryPoint {}
 
-#[derive(Copy, Clone)]
+/// A Projective point in Montgomery form
+#[derive(Copy, Clone, Debug)]
 pub struct ProjectiveMontgomeryPoint {
     U: FieldElement,
     W: FieldElement,
@@ -120,6 +122,7 @@ impl MontgomeryPoint {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ]);
 
+    /// Convert this point to an [`EdwardsPoint`]
     pub fn to_edwards(&self, _sign: u8) -> Option<EdwardsPoint> {
         // We use the 4-isogeny to map to the Ed448.
         // This is different to Curve25519, where we use a birational map.
@@ -136,6 +139,7 @@ impl MontgomeryPoint {
         &self.0
     }
 
+    /// Convert the point to a ProjectiveMontgomeryPoint
     pub fn to_projective(&self) -> ProjectiveMontgomeryPoint {
         ProjectiveMontgomeryPoint {
             U: FieldElement::from_bytes(&self.0),
@@ -196,6 +200,7 @@ fn differential_add_and_double(
 }
 
 impl ProjectiveMontgomeryPoint {
+    /// The identity element of the group: the point at infinity.
     pub fn identity() -> ProjectiveMontgomeryPoint {
         ProjectiveMontgomeryPoint {
             U: FieldElement::ONE,
@@ -203,6 +208,7 @@ impl ProjectiveMontgomeryPoint {
         }
     }
 
+    /// Convert the point to affine form
     pub fn to_affine(&self) -> MontgomeryPoint {
         let x = self.U * self.W.invert();
         MontgomeryPoint(x.to_bytes())

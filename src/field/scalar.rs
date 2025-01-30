@@ -33,10 +33,14 @@ pub type ScalarBytes = GenericArray<u8, U57>;
 /// The number of bytes needed to represent the safely create a scalar from a random bytes
 pub type WideScalarBytes = GenericArray<u8, U114>;
 
-pub(crate) const MODULUS: Scalar = constants::BASEPOINT_ORDER;
+/// The modulus of the scalar field
+pub const MODULUS: Scalar = constants::BASEPOINT_ORDER;
+/// The order of the scalar field
 pub const ORDER: U448 = U448::from_be_hex("3fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3");
+/// The wide order of the scalar field
 pub const WIDE_ORDER: U896 = U896::from_be_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3");
 
+/// The modulus of the scalar field as a sequence of 14 32-bit limbs
 pub const MODULUS_LIMBS: [u32; 14] = [
     0xab5844f3, 0x2378c292, 0x8dc58f55, 0x216cc272, 0xaed63690, 0xc44edb49, 0x7cca23e9, 0xffffffff,
     0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0x3fffffff,
@@ -475,7 +479,8 @@ impl FromOkm for Scalar {
 
         let mut num = U704::from_be_slice(&tmp[..]);
         num %= SEMI_WIDE_MODULUS;
-        let bytes = <[u8; 56]>::try_from(&num.to_le_bytes()[..56]).unwrap();
+        let bytes =
+            <[u8; 56]>::try_from(&num.to_le_bytes()[..56]).expect("slice is the correct length");
         Self::from_bytes(&bytes)
     }
 }
@@ -704,8 +709,11 @@ impl From<&Scalar> for Ed448ScalarBits {
 }
 
 impl Scalar {
+    /// The multiplicative identity element
     pub const ONE: Scalar = Scalar([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    /// Twice the multiplicative identity element
     pub const TWO: Scalar = Scalar([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    /// The additive identity element
     pub const ZERO: Scalar = Scalar([0; 14]);
 
     /// Is this scalar equal to zero?
@@ -953,13 +961,17 @@ impl Scalar {
     /// Construct a `Scalar` by reducing a 912-bit little-endian integer
     /// modulo the group order ℓ.
     pub fn from_bytes_mod_order_wide(input: &WideScalarBytes) -> Scalar {
-        let lo: [u8; 56] = (&input[..56]).try_into().unwrap();
+        let lo: [u8; 56] = (&input[..56])
+            .try_into()
+            .expect("slice is the wrong length");
         let lo = Scalar::from_bytes(&lo);
         // montgomery_multiply computes ((a*b)/R) mod ℓ, thus this computes
         // ((lo*R)/R) = lo mod ℓ
         let lo = montgomery_multiply(&lo, &R);
 
-        let hi: [u8; 56] = (&input[56..112]).try_into().unwrap();
+        let hi: [u8; 56] = (&input[56..112])
+            .try_into()
+            .expect("slice is the wrong length");
         let hi = Scalar::from_bytes(&hi);
         // ((hi*R^2)/R) = hi * R mod ℓ
         let hi = montgomery_multiply(&hi, &R2);
@@ -1015,7 +1027,8 @@ impl Scalar {
     {
         let mut random_bytes = GenericArray::<u8, U84>::default();
         let dst = [dst];
-        let mut expander = X::expand_message(&[msg], &dst, random_bytes.len()).unwrap();
+        let mut expander =
+            X::expand_message(&[msg], &dst, random_bytes.len()).expect("invalid dst");
         expander.fill_bytes(&mut random_bytes);
         Self::from_okm(&random_bytes)
     }

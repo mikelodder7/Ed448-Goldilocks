@@ -176,7 +176,7 @@ fn serialization() {
 
     let mut rng = ChaCha8Rng::from_seed([0u8; 32]);
     let signing_key = super::SigningKey::generate(&mut rng);
-    let signature = signing_key.sign_raw(b"Hello, World!").unwrap();
+    let signature = signing_key.sign_raw(b"Hello, World!");
 
     let bytes = serde_bare::to_vec(&signature).unwrap();
     let signature2: Signature = serde_bare::from_slice(&bytes).unwrap();

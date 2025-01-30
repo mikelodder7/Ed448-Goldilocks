@@ -26,6 +26,7 @@ pub type DecafPointBytes = [u8; 56];
 /// The group bytes representation
 pub type DecafPointRepr = GenericArray<u8, U56>;
 
+/// A Decaf point in the Twisted Edwards curve
 #[derive(Copy, Clone, Debug)]
 pub struct DecafPoint(pub(crate) ExtendedPoint);
 
@@ -360,7 +361,8 @@ impl DecafPoint {
     {
         let dst = [dst];
         let mut random_bytes = GenericArray::<u8, U84>::default();
-        let mut expander = X::expand_message(&[msg], &dst, random_bytes.len() * 2).unwrap();
+        let mut expander =
+            X::expand_message(&[msg], &dst, random_bytes.len() * 2).expect("bad dst");
         expander.fill_bytes(&mut random_bytes);
         let u0 = FieldElement::from_okm(&random_bytes);
         expander.fill_bytes(&mut random_bytes);

@@ -227,7 +227,7 @@ impl CompressedEdwardsY {
     /// curve point.
     pub fn decompress_unchecked(&self) -> CtOption<EdwardsPoint> {
         // Safe to unwrap here as the underlying data structure is a slice
-        let (sign, b) = self.0.split_last().unwrap();
+        let (sign, b) = self.0.split_last().expect("slice is non-empty");
 
         let mut y_bytes: [u8; 56] = [0; 56];
         y_bytes.copy_from_slice(b);
@@ -541,6 +541,7 @@ impl EdwardsPoint {
         T: FieldElement::ZERO,
     };
 
+    /// Convert this point to [`MontgomeryPoint`]
     pub fn to_montgomery(&self) -> MontgomeryPoint {
         // u = y^2 * [(1-dy^2)/(1-y^2)]
 
@@ -591,7 +592,7 @@ impl EdwardsPoint {
         result
     }
 
-    // Standard compression; store Y and sign of X
+    /// Standard compression; store Y and sign of X
     // XXX: This needs more docs and is `compress` the conventional function name? I think to_bytes/encode is?
     pub fn compress(&self) -> CompressedEdwardsY {
         let affine = self.to_affine();
@@ -605,10 +606,11 @@ impl EdwardsPoint {
 
         let y_bytes = affine_y.to_bytes();
         compressed_bytes[..y_bytes.len()].copy_from_slice(&y_bytes[..]);
-        *compressed_bytes.last_mut().unwrap() = sign << 7;
+        *compressed_bytes.last_mut().expect("at least one byte") = sign << 7;
         CompressedEdwardsY(compressed_bytes)
     }
 
+    /// Add two points
     //https://iacr.org/archive/asiacrypt2008/53500329/53500329.pdf (3.1)
     // These formulas are unified, so for now we can use it for doubling. Will refactor later for speed
     pub fn add(&self, other: &EdwardsPoint) -> Self {
@@ -639,13 +641,15 @@ impl EdwardsPoint {
         EdwardsPoint { X, Y, Z, T }
     }
 
+    /// Double this point
     // XXX: See comment on addition, the formula is unified, so this will do for now
     //https://iacr.org/archive/asiacrypt2008/53500329/53500329.pdf (3.1)
     pub fn double(&self) -> Self {
         self.add(self)
     }
 
-    pub(crate) fn is_on_curve(&self) -> Choice {
+    /// Check if this point is on the curve
+    pub fn is_on_curve(&self) -> Choice {
         let XY = self.X * self.Y;
         let ZT = self.Z * self.T;
 
@@ -661,6 +665,7 @@ impl EdwardsPoint {
         XY.ct_eq(&ZT) & lhs.ct_eq(&rhs)
     }
 
+    /// Convert this point to an [`AffinePoint`].
     pub fn to_affine(&self) -> AffinePoint {
         let INV_Z = self.Z.invert();
 
@@ -702,6 +707,7 @@ impl EdwardsPoint {
         self.edwards_isogeny(FieldElement::ONE)
     }
 
+    /// Compute the negation of this point's `x`-coordinate.
     pub fn negate(&self) -> Self {
         EdwardsPoint {
             X: -self.X,
@@ -711,6 +717,7 @@ impl EdwardsPoint {
         }
     }
 
+    /// Compute the negation of this point's `y`-coordinate.
     pub fn torque(&self) -> Self {
         EdwardsPoint {
             X: -self.X,
@@ -750,7 +757,8 @@ impl EdwardsPoint {
     {
         let mut random_bytes = GenericArray::<u8, U84>::default();
         let dst = [dst];
-        let mut expander = X::expand_message(&[msg], &dst, random_bytes.len() * 2).unwrap();
+        let mut expander =
+            X::expand_message(&[msg], &dst, random_bytes.len() * 2).expect("bad dst");
         expander.fill_bytes(&mut random_bytes);
         let u0 = FieldElement::from_okm(&random_bytes);
         expander.fill_bytes(&mut random_bytes);
@@ -780,7 +788,7 @@ impl EdwardsPoint {
     {
         let mut random_bytes = GenericArray::<u8, U84>::default();
         let dst = [dst];
-        let mut expander = X::expand_message(&[msg], &dst, random_bytes.len()).unwrap();
+        let mut expander = X::expand_message(&[msg], &dst, random_bytes.len()).expect("bad dst");
         expander.fill_bytes(&mut random_bytes);
         let u0 = FieldElement::from_okm(&random_bytes);
         let mut q0 = u0.map_to_curve_elligator2();
@@ -830,7 +838,7 @@ impl Add<&EdwardsPoint> for &AffinePoint {
 
 impl<'b> AddAssign<&'b EdwardsPoint> for EdwardsPoint {
     fn add_assign(&mut self, _rhs: &'b EdwardsPoint) {
-        *self = (self as &EdwardsPoint) + _rhs;
+        *self = *self + _rhs;
     }
 }
 
@@ -888,7 +896,7 @@ define_sub_variants!(LHS = AffinePoint, RHS = EdwardsPoint, Output = EdwardsPoin
 
 impl<'b> SubAssign<&'b EdwardsPoint> for EdwardsPoint {
     fn sub_assign(&mut self, _rhs: &'b EdwardsPoint) {
-        *self = (self as &EdwardsPoint) - _rhs;
+        *self = *self - _rhs;
     }
 }
 
@@ -948,7 +956,7 @@ impl Neg for EdwardsPoint {
 
 impl<'b> MulAssign<&'b Scalar> for EdwardsPoint {
     fn mul_assign(&mut self, scalar: &'b Scalar) {
-        let result = (self as &EdwardsPoint) * scalar;
+        let result = *self * scalar;
         *self = result;
     }
 }

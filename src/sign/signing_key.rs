@@ -7,6 +7,7 @@ use crate::{
     Context, Scalar, ScalarBytes, Signature, VerifyingKey, PUBLIC_KEY_LENGTH, SECRET_KEY_LENGTH,
 };
 use core::fmt::{self, Debug, Formatter};
+use crypto_signature::Error;
 use sha3::{
     digest::{
         consts::U64, crypto_common::BlockSizeUser, typenum::IsEqual, ExtendableOutput, FixedOutput,
@@ -14,7 +15,6 @@ use sha3::{
     },
     Digest,
 };
-use signature::Error;
 use subtle::{Choice, ConstantTimeEq};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -24,13 +24,14 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 pub type SecretKey = ScalarBytes;
 
 /// Signing hash trait for Ed448ph
-pub trait SigningHash {
+pub trait PreHash {
+    /// Fill the given `out` buffer with the hash bytes
     fn fill_bytes(&mut self, out: &mut [u8]);
 }
 
 /// Signing pre-hasher for Ed448ph with a fixed output size
 #[derive(Debug)]
-pub struct SigningPreHasherXmd<HashT>
+pub struct PreHasherXmd<HashT>
 where
     HashT: BlockSizeUser + Default + FixedOutput + FixedOutputReset + Update + HashMarker,
     HashT::OutputSize: IsEqual<U64>,
@@ -38,7 +39,7 @@ where
     hasher: HashT,
 }
 
-impl<HashT> From<HashT> for SigningPreHasherXmd<HashT>
+impl<HashT> From<HashT> for PreHasherXmd<HashT>
 where
     HashT: BlockSizeUser + Default + FixedOutput + FixedOutputReset + Update + HashMarker,
     HashT::OutputSize: IsEqual<U64>,
@@ -48,17 +49,18 @@ where
     }
 }
 
-impl<HashT> SigningPreHasherXmd<HashT>
+impl<HashT> PreHasherXmd<HashT>
 where
     HashT: BlockSizeUser + Default + FixedOutput + FixedOutputReset + Update + HashMarker,
     HashT::OutputSize: IsEqual<U64>,
 {
+    /// Create a new [`PreHasherXmd`] from a `HashT`
     pub fn new(hasher: HashT) -> Self {
         Self { hasher }
     }
 }
 
-impl<HashT> SigningHash for SigningPreHasherXmd<HashT>
+impl<HashT> PreHash for PreHasherXmd<HashT>
 where
     HashT: BlockSizeUser + Default + FixedOutput + FixedOutputReset + Update + HashMarker,
     HashT::OutputSize: IsEqual<U64>,
@@ -69,14 +71,14 @@ where
 }
 
 /// Signing pre-hasher for Ed448ph with a xof output
-pub struct SigningPreHasherXof<HashT>
+pub struct PreHasherXof<HashT>
 where
     HashT: Default + ExtendableOutput + Update,
 {
     reader: <HashT as ExtendableOutput>::Reader,
 }
 
-impl<HashT> Debug for SigningPreHasherXof<HashT>
+impl<HashT> Debug for PreHasherXof<HashT>
 where
     HashT: Default + ExtendableOutput + Update,
 {
@@ -86,7 +88,7 @@ where
     }
 }
 
-impl<HashT> SigningHash for SigningPreHasherXof<HashT>
+impl<HashT> PreHash for PreHasherXof<HashT>
 where
     HashT: Default + ExtendableOutput + Update,
 {
@@ -95,7 +97,7 @@ where
     }
 }
 
-impl<HashT> From<HashT> for SigningPreHasherXof<HashT>
+impl<HashT> From<HashT> for PreHasherXof<HashT>
 where
     HashT: Default + ExtendableOutput + Update,
 {
@@ -104,10 +106,11 @@ where
     }
 }
 
-impl<HashT> SigningPreHasherXof<HashT>
+impl<HashT> PreHasherXof<HashT>
 where
     HashT: Default + ExtendableOutput + Update,
 {
+    /// Create a new [`PreHasherXof`] from a `HashT`
     pub fn new(hasher: HashT) -> Self {
         Self {
             reader: hasher.finalize_xof(),
@@ -209,7 +212,7 @@ impl TryFrom<Box<[u8]>> for SigningKey {
     }
 }
 
-impl<D> signature::DigestSigner<D, Signature> for SigningKey
+impl<D> crypto_signature::DigestSigner<D, Signature> for SigningKey
 where
     D: Digest,
 {
@@ -221,21 +224,21 @@ where
     }
 }
 
-impl signature::hazmat::PrehashSigner<Signature> for SigningKey {
+impl crypto_signature::hazmat::PrehashSigner<Signature> for SigningKey {
     fn sign_prehash(&self, prehash: &[u8]) -> Result<Signature, Error> {
         let sig = self.secret.sign_prehashed(&[], prehash)?;
         Ok(sig.into())
     }
 }
 
-impl signature::Signer<Signature> for SigningKey {
+impl crypto_signature::Signer<Signature> for SigningKey {
     fn try_sign(&self, msg: &[u8]) -> Result<Signature, Error> {
         let sig = self.secret.sign_raw(msg)?;
         Ok(sig.into())
     }
 }
 
-impl<D> signature::DigestSigner<D, Signature> for Context<'_, '_, SigningKey>
+impl<D> crypto_signature::DigestSigner<D, Signature> for Context<'_, '_, SigningKey>
 where
     D: Digest,
 {
@@ -250,26 +253,26 @@ where
     }
 }
 
-impl signature::hazmat::PrehashSigner<Signature> for Context<'_, '_, SigningKey> {
+impl crypto_signature::hazmat::PrehashSigner<Signature> for Context<'_, '_, SigningKey> {
     fn sign_prehash(&self, prehash: &[u8]) -> Result<Signature, Error> {
         let sig = self.key.secret.sign_prehashed(self.value, prehash)?;
         Ok(sig.into())
     }
 }
 
-impl signature::Signer<Signature> for Context<'_, '_, SigningKey> {
+impl crypto_signature::Signer<Signature> for Context<'_, '_, SigningKey> {
     fn try_sign(&self, msg: &[u8]) -> Result<Signature, Error> {
         let sig = self.key.secret.sign_ctx(self.value, msg)?;
         Ok(sig.into())
     }
 }
 
-impl<D> signature::DigestVerifier<D, Signature> for SigningKey
+impl<D> crypto_signature::DigestVerifier<D, Signature> for SigningKey
 where
     D: Digest,
 {
     fn verify_digest(&self, msg: D, signature: &Signature) -> Result<(), Error> {
-        <VerifyingKey as signature::DigestVerifier<D, Signature>>::verify_digest(
+        <VerifyingKey as crypto_signature::DigestVerifier<D, Signature>>::verify_digest(
             &self.secret.public_key,
             msg,
             signature,
@@ -277,7 +280,7 @@ where
     }
 }
 
-impl signature::Verifier<Signature> for SigningKey {
+impl crypto_signature::Verifier<Signature> for SigningKey {
     fn verify(&self, msg: &[u8], signature: &Signature) -> Result<(), Error> {
         self.secret.public_key.verify_raw(signature, msg)
     }
@@ -304,8 +307,12 @@ impl pkcs8::spki::DynSignatureAlgorithmIdentifier for SigningKey {
 }
 
 #[cfg(feature = "pkcs8")]
+/// Keypair bytes for Ed448
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct KeypairBytes {
+    /// The secret key bytes
     pub secret_key: PointBytes,
+    /// The public key bytes if included
     pub verifying_key: Option<PointBytes>,
 }
 
@@ -473,28 +480,31 @@ impl SigningKey {
     }
 
     /// Sign a `message` with this [`SigningKey`] using the Ed448 algorithm
-    /// defined in [RFC8032 §5.2][rfc8032].
-    pub fn sign_raw(&self, message: &[u8]) -> Result<Signature, Error> {
-        let sig = self.secret.sign_raw(message)?;
-        Ok(sig.into())
+    /// defined in [RFC8032 §5.2](https://datatracker.ietf.org/doc/html/rfc8032#section-5.2).
+    pub fn sign_raw(&self, message: &[u8]) -> Signature {
+        let sig = self
+            .secret
+            .sign_raw(message)
+            .expect("to succeed since no context is provided");
+        sig.into()
     }
 
     /// Sign a `message` in the given `context` with this [`SigningKey`] using the Ed448ph algorithm
-    /// defined in [RFC8032 §5.2][rfc8032].
+    /// defined in [RFC8032 §5.2](https://datatracker.ietf.org/doc/html/rfc8032#section-5.2).
     pub fn sign_ctx(&self, context: &[u8], message: &[u8]) -> Result<Signature, Error> {
         let sig = self.secret.sign_ctx(context, message)?;
         Ok(sig.into())
     }
 
     /// Sign a `prehashed_message` with this [`SigningKey`] using the
-    /// Ed448ph algorithm defined in [RFC8032 §5.2][rfc8032].
+    /// Ed448ph algorithm defined in [RFC8032 §5.2](https://datatracker.ietf.org/doc/html/rfc8032#section-5.2).
     pub fn sign_prehashed<D>(
         &self,
-        mut prehashed_message: D,
         context: Option<&[u8]>,
+        mut prehashed_message: D,
     ) -> Result<Signature, Error>
     where
-        D: SigningHash,
+        D: PreHash,
     {
         let mut m = [0u8; 64];
         prehashed_message.fill_bytes(&mut m);

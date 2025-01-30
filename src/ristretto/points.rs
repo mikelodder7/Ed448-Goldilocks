@@ -7,10 +7,12 @@ use subtle::{Choice, ConstantTimeEq};
 pub type RistrettoPointBytes = [u8; 56];
 
 #[derive(Copy, Clone, Debug)]
+/// Ristretto point.
 pub struct RistrettoPoint(pub(crate) ExtendedPoint);
 
 #[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
+/// Compressed Ristretto point.
 pub struct CompressedRistretto(pub RistrettoPointBytes);
 
 impl Default for CompressedRistretto {
@@ -34,8 +36,10 @@ impl PartialEq for CompressedRistretto {
 impl Eq for CompressedRistretto {}
 
 impl CompressedRistretto {
+    /// The identity element of the group: the point at infinity.
     pub const IDENTITY: Self = Self([0u8; 56]);
 
+    /// Get the bytes of the compressed point.
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
@@ -47,22 +51,26 @@ impl RistrettoPoint {
     /// The identity element of the group: the point at infinity.
     pub const IDENTITY: RistrettoPoint = RistrettoPoint(ExtendedPoint::IDENTITY);
 
+    /// Check whether the point is the identity point.
     pub fn equals(&self, other: &RistrettoPoint) -> bool {
         let XY = self.0.X * other.0.Y;
         let YX = self.0.Y * other.0.X;
         XY == YX
     }
 
+    /// Decode the compressed point.
     pub fn encode(&self) -> CompressedRistretto {
         todo!()
     }
 }
 
 impl CompressedRistretto {
+    /// The identity element of the group: the point at infinity.
     pub fn identity() -> CompressedRistretto {
         CompressedRistretto([0; 56])
     }
 
+    /// Decode the compressed point.
     pub fn decode(&self) -> Option<RistrettoPoint> {
         todo!()
     }
