@@ -40,7 +40,7 @@
 #![warn(unused_attributes, unused_imports, unused_mut, unused_must_use)]
 #![allow(non_snake_case)]
 #![cfg_attr(all(not(feature = "alloc"), not(feature = "std")), no_std)]
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![warn(
     missing_docs,
     missing_debug_implementations,

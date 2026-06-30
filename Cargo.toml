@@ -13,7 +13,11 @@ license = "BSD-3-Clause"
 name = "ed448-goldilocks-plus"
 readme = "README.md"
 repository = "https://github.com/mikelodder7/Ed448-Goldilocks"
-version = "0.17.0-rc0"
+version = "0.17.0-rc1"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 crypto-bigint = { version = "0.7.5", features = ["subtle"], default-features = false }
