@@ -114,8 +114,8 @@ impl Signature {
         if s[56] != 0x00 {
             return Err(SigningError::InvalidSignatureSComponent);
         }
-        let s_bytes = ScalarBytes::from_slice(&s);
-        let ss = Scalar::from_canonical_bytes(s_bytes);
+        let s_bytes = ScalarBytes::from(s);
+        let ss = Scalar::from_canonical_bytes(&s_bytes);
 
         if ss.is_none().into() {
             return Err(SigningError::InvalidSignatureSComponent);
@@ -154,8 +154,8 @@ impl TryFrom<Signature> for InnerSignature {
     type Error = SigningError;
 
     fn try_from(signature: Signature) -> Result<Self, Self::Error> {
-        let s_bytes = ScalarBytes::from_slice(&signature.s);
-        let s = Option::from(Scalar::from_canonical_bytes(s_bytes))
+        let s_bytes = ScalarBytes::from(signature.s);
+        let s = Option::from(Scalar::from_canonical_bytes(&s_bytes))
             .ok_or(SigningError::InvalidSignatureSComponent)?;
         let r = Option::from(signature.r.decompress())
             .ok_or(SigningError::InvalidSignatureRComponent)?;
@@ -178,11 +178,11 @@ fn serialization() {
     let signing_key = super::SigningKey::generate(&mut rng);
     let signature = signing_key.sign_raw(b"Hello, World!");
 
-    let bytes = serde_bare::to_vec(&signature).unwrap();
-    let signature2: Signature = serde_bare::from_slice(&bytes).unwrap();
+    let bytes = serde_bare::to_vec(&signature).expect("serialize signature");
+    let signature2: Signature = serde_bare::from_slice(&bytes).expect("deserialize signature");
     assert_eq!(signature, signature2);
 
-    let string = serde_json::to_string(&signature).unwrap();
-    let signature3: Signature = serde_json::from_str(&string).unwrap();
+    let string = serde_json::to_string(&signature).expect("serialize signature json");
+    let signature3: Signature = serde_json::from_str(&string).expect("deserialize signature json");
     assert_eq!(signature, signature3);
 }

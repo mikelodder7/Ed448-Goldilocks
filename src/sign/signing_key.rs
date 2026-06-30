@@ -10,11 +10,12 @@ use core::fmt::{self, Debug, Formatter};
 use crypto_signature::Error;
 use sha3::{
     digest::{
-        consts::U64, crypto_common::BlockSizeUser, typenum::IsEqual, ExtendableOutput, FixedOutput,
-        FixedOutputReset, HashMarker, Update, XofReader,
+        common::BlockSizeUser, consts::U64, typenum::IsEqual, ExtendableOutput, FixedOutput,
+        FixedOutputReset, HashMarker, Update,
     },
     Digest,
 };
+use shake::digest::XofReader;
 use subtle::{Choice, ConstantTimeEq};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -174,24 +175,6 @@ impl From<&SecretKey> for SigningKey {
     }
 }
 
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl TryFrom<Vec<u8>> for SigningKey {
-    type Error = &'static str;
-
-    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        Self::try_from(value.as_slice())
-    }
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl TryFrom<&Vec<u8>> for SigningKey {
-    type Error = &'static str;
-
-    fn try_from(value: &Vec<u8>) -> Result<Self, Self::Error> {
-        Self::try_from(value.as_slice())
-    }
-}
-
 impl TryFrom<&[u8]> for SigningKey {
     type Error = &'static str;
 
@@ -199,24 +182,22 @@ impl TryFrom<&[u8]> for SigningKey {
         if value.len() != SECRET_KEY_LENGTH {
             return Err("Invalid length for a signing key");
         }
-        Ok(Self::from(ScalarBytes::from_slice(value)))
-    }
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl TryFrom<Box<[u8]>> for SigningKey {
-    type Error = &'static str;
-
-    fn try_from(value: Box<[u8]>) -> Result<Self, Self::Error> {
-        Self::try_from(value.as_ref())
+        let mut bytes = ScalarBytes::default();
+        bytes.copy_from_slice(value);
+        Ok(Self::from(bytes))
     }
 }
 
 impl<D> crypto_signature::DigestSigner<D, Signature> for SigningKey
 where
-    D: Digest,
+    D: Digest + crypto_signature::digest::Update,
 {
-    fn try_sign_digest(&self, digest: D) -> Result<Signature, Error> {
+    fn try_sign_digest<F: Fn(&mut D) -> Result<(), Error>>(
+        &self,
+        f: F,
+    ) -> Result<Signature, Error> {
+        let mut digest = D::new();
+        f(&mut digest)?;
         let mut prehashed_message = [0u8; 64];
         prehashed_message.copy_from_slice(digest.finalize().as_slice());
         let sig = self.secret.sign_prehashed(&[], &prehashed_message)?;
@@ -240,9 +221,14 @@ impl crypto_signature::Signer<Signature> for SigningKey {
 
 impl<D> crypto_signature::DigestSigner<D, Signature> for Context<'_, '_, SigningKey>
 where
-    D: Digest,
+    D: Digest + crypto_signature::digest::Update,
 {
-    fn try_sign_digest(&self, digest: D) -> Result<Signature, Error> {
+    fn try_sign_digest<F: Fn(&mut D) -> Result<(), Error>>(
+        &self,
+        f: F,
+    ) -> Result<Signature, Error> {
+        let mut digest = D::new();
+        f(&mut digest)?;
         let mut prehashed_message = [0u8; 64];
         prehashed_message.copy_from_slice(digest.finalize().as_slice());
         let sig = self
@@ -269,12 +255,16 @@ impl crypto_signature::Signer<Signature> for Context<'_, '_, SigningKey> {
 
 impl<D> crypto_signature::DigestVerifier<D, Signature> for SigningKey
 where
-    D: Digest,
+    D: Digest + crypto_signature::digest::Update,
 {
-    fn verify_digest(&self, msg: D, signature: &Signature) -> Result<(), Error> {
+    fn verify_digest<F: Fn(&mut D) -> Result<(), Error>>(
+        &self,
+        f: F,
+        signature: &Signature,
+    ) -> Result<(), Error> {
         <VerifyingKey as crypto_signature::DigestVerifier<D, Signature>>::verify_digest(
             &self.secret.public_key,
-            msg,
+            f,
             signature,
         )
     }
@@ -324,10 +314,17 @@ impl pkcs8::EncodePrivateKey for KeypairBytes {
         private_key[1] = SECRET_KEY_LENGTH as u8;
         private_key[2..].copy_from_slice(self.secret_key.as_ref());
 
+        let public_key = self
+            .verifying_key
+            .as_ref()
+            .map(|v| pkcs8::der::asn1::BitStringRef::new(0, v.as_ref()))
+            .transpose()?;
+        let private_key_der = pkcs8::der::asn1::OctetStringRef::new(&private_key)?;
+
         let private_key_info = pkcs8::PrivateKeyInfo {
             algorithm: super::ALGORITHM_ID,
-            private_key: &private_key,
-            public_key: self.verifying_key.as_ref().map(|v| v.as_ref()),
+            private_key: private_key_der,
+            public_key,
         };
         let result = pkcs8::SecretDocument::encode_msg(&private_key_info)?;
 
@@ -339,21 +336,23 @@ impl pkcs8::EncodePrivateKey for KeypairBytes {
 }
 
 #[cfg(feature = "pkcs8")]
-impl TryFrom<pkcs8::PrivateKeyInfo<'_>> for KeypairBytes {
+impl TryFrom<pkcs8::PrivateKeyInfoRef<'_>> for KeypairBytes {
     type Error = pkcs8::Error;
 
-    fn try_from(value: pkcs8::PrivateKeyInfo<'_>) -> Result<Self, Self::Error> {
+    fn try_from(value: pkcs8::PrivateKeyInfoRef<'_>) -> Result<Self, Self::Error> {
         if value.algorithm.oid != super::ALGORITHM_OID {
-            return Err(pkcs8::Error::KeyMalformed);
+            return Err(pkcs8::KeyError::Invalid.into());
         }
-        if value.private_key.len() != SECRET_KEY_LENGTH {
-            return Err(pkcs8::Error::KeyMalformed);
+        let private_key = value.private_key.as_bytes();
+        if private_key.len() != SECRET_KEY_LENGTH {
+            return Err(pkcs8::KeyError::Invalid.into());
         }
         let mut secret_key = [0u8; SECRET_KEY_LENGTH];
-        secret_key.copy_from_slice(value.private_key);
+        secret_key.copy_from_slice(private_key);
         let verifying_key = if let Some(public_key) = value.public_key {
+            let public_key = public_key.as_bytes().ok_or(pkcs8::KeyError::Invalid)?;
             if public_key.len() != PUBLIC_KEY_LENGTH {
-                return Err(pkcs8::Error::KeyMalformed);
+                return Err(pkcs8::KeyError::Invalid.into());
             }
             let mut bytes = [0u8; PUBLIC_KEY_LENGTH];
             bytes.copy_from_slice(public_key);
@@ -382,13 +381,14 @@ impl TryFrom<&KeypairBytes> for SigningKey {
     type Error = pkcs8::Error;
 
     fn try_from(value: &KeypairBytes) -> Result<Self, Self::Error> {
-        let signing_key = SigningKey::from(SecretKey::from_slice(value.secret_key.as_ref()));
+        let secret_key = SecretKey::from(value.secret_key);
+        let signing_key = SigningKey::from(secret_key);
 
         if let Some(public_bytes) = value.verifying_key {
             let verifying_key =
-                VerifyingKey::from_bytes(&public_bytes).map_err(|_| pkcs8::Error::KeyMalformed)?;
+                VerifyingKey::from_bytes(&public_bytes).map_err(|_| pkcs8::KeyError::Invalid)?;
             if signing_key.verifying_key() != verifying_key {
-                return Err(pkcs8::Error::KeyMalformed);
+                return Err(pkcs8::KeyError::Invalid.into());
             }
         }
         Ok(signing_key)
@@ -406,10 +406,10 @@ impl From<&SigningKey> for KeypairBytes {
 }
 
 #[cfg(feature = "pkcs8")]
-impl TryFrom<pkcs8::PrivateKeyInfo<'_>> for SigningKey {
+impl TryFrom<pkcs8::PrivateKeyInfoRef<'_>> for SigningKey {
     type Error = pkcs8::Error;
 
-    fn try_from(value: pkcs8::PrivateKeyInfo<'_>) -> Result<Self, Self::Error> {
+    fn try_from(value: pkcs8::PrivateKeyInfoRef<'_>) -> Result<Self, Self::Error> {
         KeypairBytes::try_from(value)?.try_into()
     }
 }
@@ -438,7 +438,7 @@ impl<'de> serdect::serde::Deserialize<'de> for SigningKey {
 
 impl SigningKey {
     /// Generate a cryptographically random [`SigningKey`].
-    pub fn generate(mut rng: impl rand_core::CryptoRngCore) -> Self {
+    pub fn generate(mut rng: impl rand_core::CryptoRng) -> Self {
         let mut secret_scalar = SecretKey::default();
         rng.fill_bytes(secret_scalar.as_mut());
         assert!(!secret_scalar.iter().all(|&v| v == 0));
@@ -523,11 +523,12 @@ fn serialization() {
     let mut rng = ChaCha8Rng::from_seed([0u8; 32]);
     let signing_key = SigningKey::generate(&mut rng);
 
-    let bytes = serde_bare::to_vec(&signing_key).unwrap();
-    let signing_key2: SigningKey = serde_bare::from_slice(&bytes).unwrap();
+    let bytes = serde_bare::to_vec(&signing_key).expect("serialize signing key");
+    let signing_key2: SigningKey = serde_bare::from_slice(&bytes).expect("deserialize signing key");
     assert_eq!(signing_key, signing_key2);
 
-    let string = serde_json::to_string(&signing_key).unwrap();
-    let signing_key3: SigningKey = serde_json::from_str(&string).unwrap();
+    let string = serde_json::to_string(&signing_key).expect("serialize signing key json");
+    let signing_key3: SigningKey =
+        serde_json::from_str(&string).expect("deserialize signing key json");
     assert_eq!(signing_key, signing_key3);
 }

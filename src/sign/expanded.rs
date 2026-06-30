@@ -3,8 +3,8 @@ use crate::{
     EdwardsPoint, Scalar, ScalarBytes, SecretKey, SigningError, VerifyingKey, WideScalarBytes,
     SECRET_KEY_LENGTH,
 };
-use sha3::digest::ExtendableOutputReset;
-use sha3::{
+use shake::digest::ExtendableOutputReset;
+use shake::{
     digest::{ExtendableOutput, Update, XofReader},
     Shake256,
 };

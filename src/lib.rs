@@ -3,15 +3,18 @@
 //!
 //! # Usage
 //! ```
-//! use ed448_goldilocks_plus::{EdwardsPoint, CompressedEdwardsY, Scalar, elliptic_curve::hash2curve::ExpandMsgXof, sha3::Shake256};
-//! use rand_core::OsRng;
+//! use ed448_goldilocks_plus::{EdwardsPoint, CompressedEdwardsY, Scalar};
+//! use hash2curve::ExpandMsgXof;
+//! use rand_core::SeedableRng;
+//! use shake::Shake256;
 //!
+//! let mut rng = rand_chacha::ChaCha8Rng::from_seed([0u8; 32]);
 //! let secret_key = Scalar::TWO;
 //! let public_key = EdwardsPoint::GENERATOR * &secret_key;
 //!
 //! assert_eq!(public_key, EdwardsPoint::GENERATOR + EdwardsPoint::GENERATOR);
 //!
-//! let secret_key = Scalar::random(&mut OsRng);
+//! let secret_key = Scalar::random(&mut rng);
 //! let public_key = EdwardsPoint::GENERATOR * &secret_key;
 //! let compressed_public_key = public_key.compress();
 //!
@@ -87,10 +90,10 @@ pub use ristretto::{CompressedRistretto, RistrettoPoint};
 pub use sign::*;
 
 use elliptic_curve::{
-    bigint::{ArrayEncoding, ByteArray, U448},
-    generic_array::typenum::U57,
+    array::typenum::U57,
+    bigint::{ByteOrder, Odd, U448},
     point::PointCompression,
-    Curve, FieldBytesEncoding, PrimeCurve,
+    Curve, PrimeCurve,
 };
 
 /// Edwards448 curve.
@@ -101,7 +104,7 @@ pub struct Ed448;
 pub type Ed448FieldBytes = elliptic_curve::FieldBytes<Ed448>;
 
 /// Scalar bits of the Ed448 scalar
-pub type Ed448ScalarBits = elliptic_curve::scalar::ScalarBits<Ed448>;
+pub type Ed448ScalarBits = ff::FieldBits<[crypto_bigint::Word; U448::LIMBS]>;
 
 /// Non-zero scalar of the Ed448 scalar
 pub type Ed448NonZeroScalar = elliptic_curve::NonZeroScalar<Ed448>;
@@ -113,26 +116,16 @@ impl Curve for Ed448 {
     type FieldBytesSize = U57;
     type Uint = U448;
 
-    const ORDER: U448 = ORDER;
+    const ORDER: Odd<U448> = Odd::<U448>::from_be_hex(
+        "3fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3",
+    );
+    const FIELD_ENDIANNESS: ByteOrder = ByteOrder::LittleEndian;
 }
 
 impl PrimeCurve for Ed448 {}
 
 impl PointCompression for Ed448 {
     const COMPRESS_POINTS: bool = true;
-}
-
-impl FieldBytesEncoding<Ed448> for U448 {
-    fn decode_field_bytes(field_bytes: &Ed448FieldBytes) -> Self {
-        let data = ByteArray::<U448>::from_slice(field_bytes);
-        U448::from_le_byte_array(*data)
-    }
-
-    fn encode_field_bytes(&self) -> Ed448FieldBytes {
-        let mut data = Ed448FieldBytes::default();
-        data.copy_from_slice(&self.to_le_byte_array()[..]);
-        data
-    }
 }
 
 #[cfg(feature = "zeroize")]
@@ -150,7 +143,7 @@ pub struct Decaf448;
 pub type Decaf448FieldBytes = elliptic_curve::FieldBytes<Decaf448>;
 
 /// Scalar bits of the Decaf448 scalar
-pub type Decaf448ScalarBits = elliptic_curve::scalar::ScalarBits<Decaf448>;
+pub type Decaf448ScalarBits = ff::FieldBits<[crypto_bigint::Word; U448::LIMBS]>;
 
 /// Non-zero scalar of the Decaf448 scalar
 pub type Decaf448NonZeroScalar = elliptic_curve::NonZeroScalar<Decaf448>;
@@ -162,26 +155,16 @@ impl Curve for Decaf448 {
     type FieldBytesSize = U57;
     type Uint = U448;
 
-    const ORDER: U448 = ORDER;
+    const ORDER: Odd<U448> = Odd::<U448>::from_be_hex(
+        "3fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3",
+    );
+    const FIELD_ENDIANNESS: ByteOrder = ByteOrder::LittleEndian;
 }
 
 impl PrimeCurve for Decaf448 {}
 
 impl PointCompression for Decaf448 {
     const COMPRESS_POINTS: bool = true;
-}
-
-impl FieldBytesEncoding<Decaf448> for U448 {
-    fn decode_field_bytes(field_bytes: &Decaf448FieldBytes) -> Self {
-        let data = ByteArray::<U448>::from_slice(field_bytes);
-        U448::from_le_byte_array(*data)
-    }
-
-    fn encode_field_bytes(&self) -> Decaf448FieldBytes {
-        let mut data = Decaf448FieldBytes::default();
-        data.copy_from_slice(&self.to_le_byte_array()[..]);
-        data
-    }
 }
 
 #[cfg(feature = "zeroize")]

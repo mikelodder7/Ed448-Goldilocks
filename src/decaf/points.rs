@@ -7,18 +7,22 @@ use crate::*;
 use alloc::string::{String, ToString};
 
 use elliptic_curve::{
-    generic_array::{
-        typenum::{U56, U84},
-        GenericArray,
+    array::{
+        typenum::{U28, U56, U84},
+        Array as GenericArray,
     },
+    common::Generate,
+    ctutils::{CtEq, CtSelect},
     group::{cofactor::CofactorGroup, prime::PrimeGroup, Curve, GroupEncoding},
-    hash2curve::{ExpandMsg, Expander, FromOkm},
-    ops::{LinearCombination, MulByGenerator},
-    Group,
+    ops::{LinearCombination, MulByGeneratorVartime, Reduce},
+    point::NonIdentity,
+    Error, Group,
 };
+use hash2curve::{ExpandMsg, Expander};
 
 use core::fmt::{Display, Formatter, LowerHex, Result as FmtResult, UpperHex};
-use rand_core::{CryptoRngCore, RngCore};
+use core::num::NonZeroU16;
+use rand_core::{CryptoRng, TryCryptoRng, TryRng};
 use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption};
 
 /// The bytes representation of a compressed point
@@ -72,6 +76,12 @@ impl ConstantTimeEq for DecafPoint {
     }
 }
 
+impl CtEq for DecafPoint {
+    fn ct_eq(&self, other: &Self) -> elliptic_curve::ctutils::Choice {
+        ConstantTimeEq::ct_eq(self, other).into()
+    }
+}
+
 impl ConditionallySelectable for DecafPoint {
     fn conditional_select(a: &Self, b: &Self, choice: Choice) -> Self {
         DecafPoint(ExtendedPoint {
@@ -83,13 +93,41 @@ impl ConditionallySelectable for DecafPoint {
     }
 }
 
+impl CtSelect for DecafPoint {
+    fn ct_select(&self, other: &Self, choice: elliptic_curve::ctutils::Choice) -> Self {
+        Self::conditional_select(self, other, choice.into())
+    }
+}
+
 impl PartialEq for DecafPoint {
     fn eq(&self, other: &DecafPoint) -> bool {
-        self.ct_eq(other).into()
+        ConstantTimeEq::ct_eq(self, other).into()
     }
 }
 
 impl Eq for DecafPoint {}
+
+impl Generate for DecafPoint {
+    fn try_generate_from_rng<R: TryCryptoRng + ?Sized>(rng: &mut R) -> Result<Self, R::Error> {
+        let mut uniform_bytes = [0u8; 112];
+        rng.try_fill_bytes(&mut uniform_bytes)?;
+        Ok(Self::from_uniform_bytes(&uniform_bytes))
+    }
+}
+
+impl From<NonIdentity<DecafPoint>> for DecafPoint {
+    fn from(point: NonIdentity<DecafPoint>) -> Self {
+        point.to_point()
+    }
+}
+
+impl TryFrom<DecafPoint> for NonIdentity<DecafPoint> {
+    type Error = Error;
+
+    fn try_from(point: DecafPoint) -> Result<Self, Self::Error> {
+        Option::from(NonIdentity::new(point)).ok_or(Error)
+    }
+}
 
 impl From<DecafPoint> for DecafPointBytes {
     fn from(point: DecafPoint) -> DecafPointBytes {
@@ -175,10 +213,10 @@ impl TryFrom<&DecafPointBytes> for DecafPoint {
 impl Group for DecafPoint {
     type Scalar = Scalar;
 
-    fn random(mut rng: impl RngCore) -> Self {
+    fn try_random<R: TryRng + ?Sized>(rng: &mut R) -> Result<Self, R::Error> {
         let mut uniform_bytes = [0u8; 112];
-        rng.fill_bytes(&mut uniform_bytes);
-        Self::from_uniform_bytes(&uniform_bytes)
+        rng.try_fill_bytes(&mut uniform_bytes)?;
+        Ok(Self::from_uniform_bytes(&uniform_bytes))
     }
 
     fn identity() -> Self {
@@ -190,7 +228,7 @@ impl Group for DecafPoint {
     }
 
     fn is_identity(&self) -> Choice {
-        self.ct_eq(&Self::IDENTITY)
+        ConstantTimeEq::ct_eq(self, &Self::IDENTITY)
     }
 
     fn double(&self) -> Self {
@@ -228,20 +266,22 @@ impl CofactorGroup for DecafPoint {
     }
 
     fn is_torsion_free(&self) -> Choice {
-        (self * BASEPOINT_ORDER).ct_eq(&Self::IDENTITY)
+        ConstantTimeEq::ct_eq(&(self * BASEPOINT_ORDER), &Self::IDENTITY)
     }
 }
 
 impl PrimeGroup for DecafPoint {}
 
-impl MulByGenerator for DecafPoint {}
+impl MulByGeneratorVartime for DecafPoint {}
 
-impl LinearCombination for DecafPoint {}
+impl LinearCombination<[(DecafPoint, Scalar)]> for DecafPoint {}
+
+impl<const N: usize> LinearCombination<[(DecafPoint, Scalar); N]> for DecafPoint {}
 
 impl Curve for DecafPoint {
-    type AffineRepr = DecafAffinePoint;
+    type Affine = DecafAffinePoint;
 
-    fn to_affine(&self) -> Self::AffineRepr {
+    fn to_affine(&self) -> Self::Affine {
         DecafAffinePoint(self.0.to_affine())
     }
 }
@@ -305,7 +345,7 @@ impl DecafPoint {
 
     /// Check if the point is the identity
     pub fn is_identity(&self) -> Choice {
-        self.ct_eq(&DecafPoint::IDENTITY)
+        ConstantTimeEq::ct_eq(self, &DecafPoint::IDENTITY)
     }
 
     /// Add two points
@@ -344,7 +384,7 @@ impl DecafPoint {
     /// Uses the Decaf448 map, so that the discrete log
     /// of the output point with respect to any other point
     /// is unknown.
-    pub fn random(mut rng: impl CryptoRngCore) -> Self {
+    pub fn random(mut rng: impl CryptoRng) -> Self {
         let mut uniform_bytes = [0u8; 112];
         rng.fill_bytes(&mut uniform_bytes);
         Self::from_uniform_bytes(&uniform_bytes)
@@ -357,16 +397,20 @@ impl DecafPoint {
     /// separation tag.
     pub fn hash<X>(msg: &[u8], dst: &[u8]) -> Self
     where
-        X: for<'a> ExpandMsg<'a>,
+        X: ExpandMsg<U28>,
     {
         let dst = [dst];
         let mut random_bytes = GenericArray::<u8, U84>::default();
-        let mut expander =
-            X::expand_message(&[msg], &dst, random_bytes.len() * 2).expect("bad dst");
-        expander.fill_bytes(&mut random_bytes);
-        let u0 = FieldElement::from_okm(&random_bytes);
-        expander.fill_bytes(&mut random_bytes);
-        let u1 = FieldElement::from_okm(&random_bytes);
+        let len = NonZeroU16::new((random_bytes.len() * 2) as u16).expect("non-zero length");
+        let mut expander = X::expand_message(&[msg], &dst, len).expect("bad dst");
+        expander
+            .fill_bytes(&mut random_bytes)
+            .expect("expanded bytes available");
+        let u0 = FieldElement::reduce(&random_bytes);
+        expander
+            .fill_bytes(&mut random_bytes)
+            .expect("expanded bytes available");
+        let u1 = FieldElement::reduce(&random_bytes);
 
         let q0 = u0.map_to_curve_decaf448();
         let q1 = u1.map_to_curve_decaf448();
@@ -412,7 +456,7 @@ impl Default for CompressedDecaf {
 
 impl ConstantTimeEq for CompressedDecaf {
     fn ct_eq(&self, other: &CompressedDecaf) -> Choice {
-        self.as_bytes().ct_eq(other.as_bytes())
+        ConstantTimeEq::ct_eq(self.as_bytes(), other.as_bytes())
     }
 }
 
@@ -564,7 +608,7 @@ impl CompressedDecaf {
         // However, to_bytes reduces the Field element before serialising
         // So we can use to_bytes -> from_bytes and if the representations are the same, then the element was already in reduced form
         let s_bytes_check = s.to_bytes();
-        let s_encoding_is_canonical = s_bytes_check[..].ct_eq(&self.0);
+        let s_encoding_is_canonical = ConstantTimeEq::ct_eq(&s_bytes_check[..], &self.0);
         let s_is_negative = s.is_negative();
         // if s_encoding_is_canonical.unwrap_u8() == 0u8 || s.is_negative().unwrap_u8() == 1u8 {
         //     return None;
@@ -619,9 +663,18 @@ mod test {
         let P3 = P2.to_extensible().add_extended(&P).to_extended();
 
         // Encode and decode to make them Decaf points
-        let Decaf_P = DecafPoint(P).compress().decompress().unwrap();
-        let Decaf_P2 = DecafPoint(P2).compress().decompress().unwrap();
-        let expected_Decaf_P3 = DecafPoint(P3).compress().decompress().unwrap();
+        let Decaf_P = DecafPoint(P)
+            .compress()
+            .decompress()
+            .expect("decompress Decaf point");
+        let Decaf_P2 = DecafPoint(P2)
+            .compress()
+            .decompress()
+            .expect("decompress doubled Decaf point");
+        let expected_Decaf_P3 = DecafPoint(P3)
+            .compress()
+            .decompress()
+            .expect("decompress expected Decaf point");
 
         // Adding the DecafPoint should be the same as adding the Edwards points and encoding the result as Decaf
         let Decaf_P3 = Decaf_P + Decaf_P2;
@@ -739,7 +792,7 @@ mod test {
         let generator = DecafPoint::GENERATOR;
         for compressed_point in compressed.iter() {
             assert_eq!(&point.compress(), compressed_point);
-            point = &point + &generator;
+            point += generator;
             let decompressed_point = compressed_point.decompress();
             assert_eq!(decompressed_point.is_some().unwrap_u8(), 1u8);
         }
@@ -756,10 +809,10 @@ mod test {
 
     #[test]
     fn test_hash_to_curve() {
-        use elliptic_curve::hash2curve::ExpandMsgXof;
+        use hash2curve::ExpandMsgXof;
 
         let msg = b"Hello, world!";
-        let point = DecafPoint::hash::<ExpandMsgXof<sha3::Shake256>>(msg, b"test_hash_to_curve");
+        let point = DecafPoint::hash::<ExpandMsgXof<shake::Shake256>>(msg, b"test_hash_to_curve");
         assert_eq!(point.0.is_on_curve().unwrap_u8(), 1u8);
         assert_ne!(point, DecafPoint::IDENTITY);
         assert_ne!(point, DecafPoint::GENERATOR);
@@ -768,6 +821,7 @@ mod test {
     #[test]
     fn test_sum_of_products() {
         use elliptic_curve_tools::SumOfProducts;
+
         let values = [
             (Scalar::from(8u8), DecafPoint::GENERATOR),
             (Scalar::from(9u8), DecafPoint::GENERATOR),

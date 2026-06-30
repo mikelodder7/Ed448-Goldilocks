@@ -10,9 +10,10 @@
 //!
 //! ```
 //! use ed448_goldilocks_plus::*;
-//! use rand_core::OsRng;
+//! use rand_core::SeedableRng;
 //!
-//! let signing_key = SigningKey::generate(&mut OsRng);
+//! let mut rng = rand_chacha::ChaCha8Rng::from_seed([0u8; 32]);
+//! let signing_key = SigningKey::generate(&mut rng);
 //! let signature = signing_key.sign_raw(b"Hello, world!");
 //! let verifying_key = signing_key.verifying_key();
 //!
@@ -55,11 +56,12 @@
 //! which is the normal default anyway but performed explicitly.
 //! ```
 //! use ed448_goldilocks_plus::*;
-//! use sha3::{Shake256, digest::Update};
-//! use rand_core::OsRng;
+//! use rand_core::SeedableRng;
+//! use shake::{digest::Update, Shake256};
 //!
 //! let msg = b"Hello World";
-//! let signing_key = SigningKey::generate(&mut OsRng);
+//! let mut rng = rand_chacha::ChaCha8Rng::from_seed([0u8; 32]);
+//! let signing_key = SigningKey::generate(&mut rng);
 //! let signature = signing_key.sign_prehashed::<PreHasherXof<Shake256>>(
 //!                        None,
 //!                        Shake256::default().chain(msg).into(),

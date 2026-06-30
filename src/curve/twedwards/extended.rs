@@ -107,29 +107,29 @@ impl ExtendedPoint {
 
     /// Edwards_Isogeny is derived from the doubling formula
     /// XXX: There is a duplicate method in the twisted edwards module to compute the dual isogeny
-    /// XXX: Not much point trying to make it generic I think. So what we can do is optimise each respective isogeny method for a=1 or a = -1 (currently, I just made it really slow and simple)
     fn edwards_isogeny(&self, a: FieldElement) -> EdwardsExtendedPoint {
-        // Convert to affine now, then derive extended version later
-        let affine = self.to_affine();
-        let x = affine.x;
-        let y = affine.y;
+        // Projective 2-isogeny. With x = X/Z and y = Y/Z the affine image is
+        //   x' = 2xy / (y^2 - a*x^2)
+        //   y' = (y^2 + a*x^2) / (2 - y^2 - a*x^2)
+        // Clearing the shared Z^2 factor from every numerator/denominator lets us
+        // emit a valid projective extended point WITHOUT any field inversion (the
+        // previous version performed three inversions per call). Inversion-free and
+        // value-independent, so constant-time behaviour is unchanged.
+        let XX = self.X.square();
+        let YY = self.Y.square();
+        let ZZ = self.Z.square();
+        let aXX = a * XX;
 
-        // Compute x
-        let xy = x * y;
-        let x_numerator = xy + xy;
-        let x_denom = y.square() - (a * x.square());
-        let new_x = x_numerator * x_denom.invert();
-
-        // Compute y
-        let y_numerator = y.square() + (a * x.square());
-        let y_denom = (FieldElement::ONE + FieldElement::ONE) - y.square() - (a * x.square());
-        let new_y = y_numerator * y_denom.invert();
+        let x_numerator = (self.X * self.Y).double(); // 2XY
+        let x_denom = YY - aXX; // Y^2 - a*X^2
+        let y_numerator = YY + aXX; // Y^2 + a*X^2
+        let y_denom = ZZ.double() - y_numerator; // 2Z^2 - (Y^2 + a*X^2)
 
         EdwardsExtendedPoint {
-            X: new_x,
-            Y: new_y,
-            Z: FieldElement::ONE,
-            T: new_x * new_y,
+            X: x_numerator * y_denom,
+            Y: y_numerator * x_denom,
+            Z: x_denom * y_denom,
+            T: x_numerator * y_numerator,
         }
     }
 
@@ -183,7 +183,7 @@ mod tests {
 
     fn hex_to_field(hex: &'static str) -> FieldElement {
         assert_eq!(hex.len(), 56 * 2);
-        let mut bytes = hex_literal::decode(&[hex.as_bytes()]);
+        let mut bytes = hex_literal::decode(&[hex.as_bytes()]).expect("valid field hex");
         bytes.reverse();
         FieldElement::from_bytes(&bytes)
     }

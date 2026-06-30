@@ -4,7 +4,7 @@ use core::{
     iter::Sum,
     ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign},
 };
-use elliptic_curve::group::Curve;
+use elliptic_curve::{group::Curve, ops::MulVartime};
 
 use super::DecafPoint;
 
@@ -20,6 +20,28 @@ impl Mul<&Scalar> for &DecafPoint {
 
 define_mul_variants!(LHS = DecafPoint, RHS = Scalar, Output = DecafPoint);
 
+impl MulVartime<Scalar> for DecafPoint {
+    fn mul_vartime(self, rhs: Scalar) -> Self::Output {
+        self * rhs
+    }
+}
+
+impl<'a> MulVartime<&'a Scalar> for DecafPoint {
+    fn mul_vartime(self, rhs: &'a Scalar) -> Self::Output {
+        self * rhs
+    }
+}
+
+impl Mul<&Scalar> for &DecafAffinePoint {
+    type Output = DecafPoint;
+
+    fn mul(self, scalar: &Scalar) -> DecafPoint {
+        self.to_decaf() * scalar
+    }
+}
+
+define_mul_variants!(LHS = DecafAffinePoint, RHS = Scalar, Output = DecafPoint);
+
 impl Mul<&DecafPoint> for &Scalar {
     type Output = DecafPoint;
 
@@ -29,6 +51,40 @@ impl Mul<&DecafPoint> for &Scalar {
 }
 
 define_mul_variants!(LHS = Scalar, RHS = DecafPoint, Output = DecafPoint);
+
+impl Mul<&DecafAffinePoint> for &Scalar {
+    type Output = DecafPoint;
+
+    fn mul(self, point: &DecafAffinePoint) -> DecafPoint {
+        point * self
+    }
+}
+
+define_mul_variants!(LHS = Scalar, RHS = DecafAffinePoint, Output = DecafPoint);
+
+impl MulVartime<DecafPoint> for Scalar {
+    fn mul_vartime(self, rhs: DecafPoint) -> Self::Output {
+        self * rhs
+    }
+}
+
+impl<'a> MulVartime<&'a DecafPoint> for Scalar {
+    fn mul_vartime(self, rhs: &'a DecafPoint) -> Self::Output {
+        self * rhs
+    }
+}
+
+impl MulVartime<DecafAffinePoint> for Scalar {
+    fn mul_vartime(self, rhs: DecafAffinePoint) -> Self::Output {
+        self * rhs
+    }
+}
+
+impl<'a> MulVartime<&'a DecafAffinePoint> for Scalar {
+    fn mul_vartime(self, rhs: &'a DecafAffinePoint) -> Self::Output {
+        self * rhs
+    }
+}
 
 impl<'s> MulAssign<&'s Scalar> for DecafPoint {
     fn mul_assign(&mut self, scalar: &'s Scalar) {
@@ -183,6 +239,22 @@ impl Neg for DecafPoint {
 
     fn neg(self) -> DecafPoint {
         (&self).neg()
+    }
+}
+
+impl Neg for &DecafAffinePoint {
+    type Output = DecafAffinePoint;
+
+    fn neg(self) -> DecafAffinePoint {
+        DecafAffinePoint(self.0.negate())
+    }
+}
+
+impl Neg for DecafAffinePoint {
+    type Output = DecafAffinePoint;
+
+    fn neg(self) -> DecafAffinePoint {
+        -&self
     }
 }
 

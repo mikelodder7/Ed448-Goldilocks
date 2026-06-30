@@ -2,12 +2,12 @@ use core::fmt::{self, Debug, Display, Formatter, LowerHex, UpperHex};
 use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 use elliptic_curve::{
+    array::Array as GenericArray,
     bigint::{
         consts::{U84, U88},
-        Encoding, NonZero, U448, U704,
+        NonZero, U448, U704,
     },
-    generic_array::GenericArray,
-    hash2curve::{FromOkm, MapToCurve},
+    ops::Reduce,
 };
 use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq};
 
@@ -64,11 +64,9 @@ impl PartialEq for FieldElement {
 }
 impl Eq for FieldElement {}
 
-impl FromOkm for FieldElement {
-    type Length = U84;
-
-    fn from_okm(data: &GenericArray<u8, Self::Length>) -> Self {
-        const SEMI_WIDE_MODULUS: NonZero<U704> = NonZero::from_uint(U704::from_be_hex("0000000000000000000000000000000000000000000000000000000000000000fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffffffff"));
+impl Reduce<GenericArray<u8, U84>> for FieldElement {
+    fn reduce(data: &GenericArray<u8, U84>) -> Self {
+        const SEMI_WIDE_MODULUS: NonZero<U704> = NonZero::<U704>::from_be_hex("0000000000000000000000000000000000000000000000000000000000000000fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
         let mut tmp = GenericArray::<u8, U88>::default();
         tmp[4..].copy_from_slice(&data[..]);
 
@@ -178,14 +176,6 @@ impl Neg for FieldElement {
     }
 }
 
-impl MapToCurve for FieldElement {
-    type Output = EdwardsPoint;
-
-    fn map_to_curve(&self) -> Self::Output {
-        self.map_to_curve_elligator2().to_edwards()
-    }
-}
-
 impl FieldElement {
     pub const A_PLUS_TWO_OVER_FOUR: Self = Self(ResidueType::new(&U448::from_be_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000098aa")));
     pub const DECAF_FACTOR: Self = Self(ResidueType::new(&U448::from_be_hex("22d962fbeb24f7683bf68d722fa26aa0a1f1a7b8a5b8d54b64a2d780968c14ba839a66f4fd6eded260337bf6aa20ce529642ef0f45572736")));
@@ -205,11 +195,17 @@ impl FieldElement {
         (bytes[0] & 1).into()
     }
 
-    /// Inverts a field element
-    /// Previous chain length: 462, new length 460
+    /// Inverts a field element.
+    ///
+    /// Uses the identity `1/x = x * ((x^2)^(-1/2))^2`: `x^2` is always a quadratic
+    /// residue, so the hand-tuned inverse-square-root addition chain applies and is
+    /// dramatically cheaper than a generic 448-bit `pow` exponentiation. The chain is
+    /// a fixed sequence of squarings/multiplications independent of the input value,
+    /// so the operation remains constant-time. For `x = 0` the chain yields `0`,
+    /// preserving the conventional `inv(0) = 0`.
     pub fn invert(&self) -> Self {
-        const INV_EXP: U448 = U448::from_be_hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffd");
-        Self(self.0.pow(&INV_EXP))
+        let (root, _) = self.square().inverse_square_root();
+        *self * root.square()
     }
 
     pub fn square(&self) -> Self {
@@ -383,9 +379,10 @@ impl FieldElement {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elliptic_curve::hash2curve::{ExpandMsg, ExpandMsgXof, Expander};
+    use core::num::NonZeroU16;
+    use hash2curve::{ExpandMsg, ExpandMsgXof, Expander};
     use hex_literal::hex;
-    use sha3::Shake256;
+    use shake::Shake256;
 
     #[test]
     fn from_okm_curve448() {
@@ -399,18 +396,25 @@ mod tests {
         ];
 
         for (msg, expected_u0, expected_u1) in MSGS {
-            let mut expander =
-                ExpandMsgXof::<Shake256>::expand_message(&[msg], &[DST], 84 * 2).unwrap();
+            let len = NonZeroU16::new(84 * 2).expect("non-zero length");
+            let mut expander = <ExpandMsgXof<Shake256> as ExpandMsg<
+                elliptic_curve::array::typenum::U28,
+            >>::expand_message(&[msg], &[DST], len)
+            .expect("valid expand_message inputs");
             let mut data = GenericArray::<u8, U84>::default();
-            expander.fill_bytes(&mut data);
-            let u0 = FieldElement::from_okm(&data);
+            expander
+                .fill_bytes(&mut data)
+                .expect("expanded bytes available");
+            let u0 = FieldElement::reduce(&data);
             let mut e_u0 = *expected_u0;
             e_u0.reverse();
             let mut e_u1 = *expected_u1;
             e_u1.reverse();
             assert_eq!(u0.to_bytes(), e_u0);
-            expander.fill_bytes(&mut data);
-            let u1 = FieldElement::from_okm(&data);
+            expander
+                .fill_bytes(&mut data)
+                .expect("expanded bytes available");
+            let u1 = FieldElement::reduce(&data);
             assert_eq!(u1.to_bytes(), e_u1);
         }
     }
@@ -427,18 +431,25 @@ mod tests {
         ];
 
         for (msg, expected_u0, expected_u1) in MSGS {
-            let mut expander =
-                ExpandMsgXof::<Shake256>::expand_message(&[msg], &[DST], 84 * 2).unwrap();
+            let len = NonZeroU16::new(84 * 2).expect("non-zero length");
+            let mut expander = <ExpandMsgXof<Shake256> as ExpandMsg<
+                elliptic_curve::array::typenum::U28,
+            >>::expand_message(&[msg], &[DST], len)
+            .expect("valid expand_message inputs");
             let mut data = GenericArray::<u8, U84>::default();
-            expander.fill_bytes(&mut data);
-            let u0 = FieldElement::from_okm(&data);
+            expander
+                .fill_bytes(&mut data)
+                .expect("expanded bytes available");
+            let u0 = FieldElement::reduce(&data);
             let mut e_u0 = *expected_u0;
             e_u0.reverse();
             let mut e_u1 = *expected_u1;
             e_u1.reverse();
             assert_eq!(u0.to_bytes(), e_u0);
-            expander.fill_bytes(&mut data);
-            let u1 = FieldElement::from_okm(&data);
+            expander
+                .fill_bytes(&mut data)
+                .expect("expanded bytes available");
+            let u1 = FieldElement::reduce(&data);
             assert_eq!(u1.to_bytes(), e_u1);
         }
     }
@@ -447,6 +458,37 @@ mod tests {
     fn get_constants() {
         let m1 = -FieldElement::ONE;
         assert_eq!(m1, FieldElement::MINUS_ONE);
+    }
+
+    #[test]
+    fn invert_is_correct() {
+        const INV_EXP: U448 = U448::from_be_hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffd");
+
+        // inv(0) == 0 by convention.
+        assert_eq!(FieldElement::ZERO.invert(), FieldElement::ZERO);
+
+        // Deterministic spread of samples, including the curve constants.
+        let mut x = FieldElement::from_bytes(&[7u8; 56]);
+        for _ in 0..64 {
+            x = x.square() + FieldElement::EDWARDS_D;
+            if bool::from(x.ct_eq(&FieldElement::ZERO)) {
+                continue;
+            }
+            // Definitive correctness: x * x^-1 == 1.
+            assert_eq!(x * x.invert(), FieldElement::ONE);
+            // Agreement with the previous generic-pow implementation.
+            assert_eq!(x.invert(), FieldElement(x.0.pow(&INV_EXP)));
+        }
+
+        for c in [
+            FieldElement::ONE,
+            FieldElement::MINUS_ONE,
+            FieldElement::EDWARDS_D,
+            FieldElement::TWISTED_D,
+        ] {
+            assert_eq!(c * c.invert(), FieldElement::ONE);
+            assert_eq!(c.invert(), FieldElement(c.0.pow(&INV_EXP)));
+        }
     }
 
     #[test]

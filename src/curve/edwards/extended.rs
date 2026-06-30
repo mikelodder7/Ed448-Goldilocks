@@ -1,6 +1,7 @@
 use core::borrow::Borrow;
 use core::fmt::{Display, Formatter, LowerHex, Result as FmtResult, UpperHex};
 use core::iter::Sum;
+use core::num::NonZeroU16;
 use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 use crate::constants::BASEPOINT_ORDER;
@@ -11,15 +12,19 @@ use crate::curve::twedwards::extended::ExtendedPoint as TwistedExtendedPoint;
 use crate::field::{FieldElement, Scalar};
 use crate::*;
 use elliptic_curve::{
-    generic_array::{
-        typenum::{U57, U84},
-        GenericArray,
+    array::{
+        typenum::{U28, U57, U84},
+        Array as GenericArray,
     },
+    common::Generate,
+    ctutils::{CtEq, CtSelect},
     group::{cofactor::CofactorGroup, prime::PrimeGroup, Curve, Group, GroupEncoding},
-    hash2curve::{ExpandMsg, ExpandMsgXof, Expander, FromOkm},
-    ops::{LinearCombination, MulByGenerator},
+    ops::{LinearCombination, MulByGeneratorVartime, MulVartime, Reduce},
+    point::NonIdentity,
+    Error,
 };
-use rand_core::RngCore;
+use hash2curve::{ExpandMsg, ExpandMsgXof, Expander};
+use rand_core::{TryCryptoRng, TryRng};
 use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption};
 
 /// The default hash to curve domain separation tag
@@ -88,7 +93,7 @@ impl ConditionallySelectable for CompressedEdwardsY {
 
 impl ConstantTimeEq for CompressedEdwardsY {
     fn ct_eq(&self, other: &Self) -> Choice {
-        self.0.ct_eq(&other.0)
+        self.0.ct_eq(&other.0).into()
     }
 }
 
@@ -343,21 +348,55 @@ impl ConstantTimeEq for EdwardsPoint {
     }
 }
 
+impl CtEq for EdwardsPoint {
+    fn ct_eq(&self, other: &Self) -> elliptic_curve::ctutils::Choice {
+        ConstantTimeEq::ct_eq(self, other).into()
+    }
+}
+
 impl PartialEq for EdwardsPoint {
     fn eq(&self, other: &EdwardsPoint) -> bool {
-        self.ct_eq(other).into()
+        ConstantTimeEq::ct_eq(self, other).into()
+    }
+}
+
+impl CtSelect for EdwardsPoint {
+    fn ct_select(&self, other: &Self, choice: elliptic_curve::ctutils::Choice) -> Self {
+        Self::conditional_select(self, other, choice.into())
     }
 }
 
 impl Eq for EdwardsPoint {}
 
+impl Generate for EdwardsPoint {
+    fn try_generate_from_rng<R: TryCryptoRng + ?Sized>(rng: &mut R) -> Result<Self, R::Error> {
+        let mut bytes = [0u8; 32];
+        rng.try_fill_bytes(&mut bytes)?;
+        Ok(Self::hash_with_defaults(&bytes))
+    }
+}
+
+impl From<NonIdentity<EdwardsPoint>> for EdwardsPoint {
+    fn from(point: NonIdentity<EdwardsPoint>) -> Self {
+        point.to_point()
+    }
+}
+
+impl TryFrom<EdwardsPoint> for NonIdentity<EdwardsPoint> {
+    type Error = Error;
+
+    fn try_from(point: EdwardsPoint) -> Result<Self, Self::Error> {
+        Option::from(NonIdentity::new(point)).ok_or(Error)
+    }
+}
+
 impl Group for EdwardsPoint {
     type Scalar = Scalar;
 
-    fn random(mut rng: impl RngCore) -> Self {
+    fn try_random<R: TryRng + ?Sized>(rng: &mut R) -> Result<Self, R::Error> {
         let mut bytes = [0u8; 32];
-        rng.fill_bytes(&mut bytes);
-        Self::hash_with_defaults(&bytes)
+        rng.try_fill_bytes(&mut bytes)?;
+        Ok(Self::hash_with_defaults(&bytes))
     }
 
     fn identity() -> Self {
@@ -369,7 +408,7 @@ impl Group for EdwardsPoint {
     }
 
     fn is_identity(&self) -> Choice {
-        self.ct_eq(&Self::IDENTITY)
+        ConstantTimeEq::ct_eq(self, &Self::IDENTITY)
     }
 
     fn double(&self) -> Self {
@@ -393,7 +432,7 @@ impl GroupEncoding for EdwardsPoint {
     }
 
     fn to_bytes(&self) -> Self::Repr {
-        Self::Repr::clone_from_slice(&self.compress().0)
+        Self::Repr::from(self.compress().0)
     }
 }
 
@@ -518,15 +557,17 @@ impl From<&EdwardsPoint> for AffinePoint {
     }
 }
 
-impl LinearCombination for EdwardsPoint {}
+impl LinearCombination<[(EdwardsPoint, Scalar)]> for EdwardsPoint {}
 
-impl MulByGenerator for EdwardsPoint {}
+impl<const N: usize> LinearCombination<[(EdwardsPoint, Scalar); N]> for EdwardsPoint {}
+
+impl MulByGeneratorVartime for EdwardsPoint {}
 
 impl Curve for EdwardsPoint {
-    type AffineRepr = AffinePoint;
+    type Affine = AffinePoint;
 
     fn to_affine(&self) -> AffinePoint {
-        self.to_affine()
+        EdwardsPoint::to_affine(self)
     }
 }
 
@@ -619,26 +660,17 @@ impl EdwardsPoint {
         let ZZ = self.Z * other.Z; // Z1Z2
         let YY = self.Y * other.Y;
 
-        let X = {
-            let x_1 = (self.X * other.Y) + (self.Y * other.X);
-            let x_2 = ZZ - dTT;
-            x_1 * x_2
-        };
-        let Y = {
-            let y_1 = YY - aXX;
-            let y_2 = ZZ + dTT;
-            y_1 * y_2
-        };
+        let x_1 = (self.X * other.Y) + (self.Y * other.X);
+        let x_2 = ZZ - dTT;
+        let y_1 = YY - aXX;
+        let y_2 = ZZ + dTT;
 
-        let T = {
-            let t_1 = YY - aXX;
-            let t_2 = (self.X * other.Y) + (self.Y * other.X);
-            t_1 * t_2
-        };
-
-        let Z = { (ZZ - dTT) * (ZZ + dTT) };
-
-        EdwardsPoint { X, Y, Z, T }
+        EdwardsPoint {
+            X: x_1 * x_2,
+            Y: y_1 * y_2,
+            T: y_1 * x_1,
+            Z: x_2 * y_2,
+        }
     }
 
     /// Double this point
@@ -677,29 +709,29 @@ impl EdwardsPoint {
 
     /// Edwards_Isogeny is derived from the doubling formula
     /// XXX: There is a duplicate method in the twisted edwards module to compute the dual isogeny
-    /// XXX: Not much point trying to make it generic I think. So what we can do is optimise each respective isogeny method for a=1 or a = -1 (currently, I just made it really slow and simple)
     fn edwards_isogeny(&self, a: FieldElement) -> TwistedExtendedPoint {
-        // Convert to affine now, then derive extended version later
-        let affine = self.to_affine();
-        let x = affine.x;
-        let y = affine.y;
+        // Projective 2-isogeny. With x = X/Z and y = Y/Z the affine image is
+        //   x' = 2xy / (y^2 - a*x^2)
+        //   y' = (y^2 + a*x^2) / (2 - y^2 - a*x^2)
+        // Clearing the shared Z^2 factor from every numerator/denominator lets us
+        // emit a valid projective extended point WITHOUT any field inversion (the
+        // previous version performed three inversions per call). Inversion-free and
+        // value-independent, so constant-time behaviour is unchanged.
+        let XX = self.X.square();
+        let YY = self.Y.square();
+        let ZZ = self.Z.square();
+        let aXX = a * XX;
 
-        // Compute x
-        let xy = x * y;
-        let x_numerator = xy + xy;
-        let x_denom = y.square() - (a * x.square());
-        let new_x = x_numerator * x_denom.invert();
-
-        // Compute y
-        let y_numerator = y.square() + (a * x.square());
-        let y_denom = (FieldElement::ONE + FieldElement::ONE) - y.square() - (a * x.square());
-        let new_y = y_numerator * y_denom.invert();
+        let x_numerator = (self.X * self.Y).double(); // 2XY
+        let x_denom = YY - aXX; // Y^2 - a*X^2
+        let y_numerator = YY + aXX; // Y^2 + a*X^2
+        let y_denom = ZZ.double() - y_numerator; // 2Z^2 - (Y^2 + a*X^2)
 
         TwistedExtendedPoint {
-            X: new_x,
-            Y: new_y,
-            Z: FieldElement::ONE,
-            T: new_x * new_y,
+            X: x_numerator * y_denom,
+            Y: y_numerator * x_denom,
+            Z: x_denom * y_denom,
+            T: x_numerator * y_numerator,
         }
     }
 
@@ -733,18 +765,18 @@ impl EdwardsPoint {
     /// # Return
     ///
     /// * `true` if `self` has zero torsion component and is in the
-    ///    prime-order subgroup;
+    ///   prime-order subgroup;
     /// * `false` if `self` has a nonzero torsion component and is not
-    ///    in the prime-order subgroup.
+    ///   in the prime-order subgroup.
     pub fn is_torsion_free(&self) -> Choice {
-        (self * BASEPOINT_ORDER).ct_eq(&Self::IDENTITY)
+        ConstantTimeEq::ct_eq(&(self * BASEPOINT_ORDER), &Self::IDENTITY)
     }
 
     /// Hash a message to a point on the curve
     ///
     /// Hash using the default domain separation tag and hash function
     pub fn hash_with_defaults(msg: &[u8]) -> Self {
-        Self::hash::<ExpandMsgXof<sha3::Shake256>>(msg, DEFAULT_HASH_TO_CURVE_SUITE)
+        Self::hash::<ExpandMsgXof<shake::Shake256>>(msg, DEFAULT_HASH_TO_CURVE_SUITE)
     }
 
     /// Hash a message to a point on the curve
@@ -753,16 +785,20 @@ impl EdwardsPoint {
     /// see <https://datatracker.ietf.org/doc/rfc9380/>
     pub fn hash<X>(msg: &[u8], dst: &[u8]) -> Self
     where
-        X: for<'a> ExpandMsg<'a>,
+        X: ExpandMsg<U28>,
     {
         let mut random_bytes = GenericArray::<u8, U84>::default();
         let dst = [dst];
-        let mut expander =
-            X::expand_message(&[msg], &dst, random_bytes.len() * 2).expect("bad dst");
-        expander.fill_bytes(&mut random_bytes);
-        let u0 = FieldElement::from_okm(&random_bytes);
-        expander.fill_bytes(&mut random_bytes);
-        let u1 = FieldElement::from_okm(&random_bytes);
+        let len = NonZeroU16::new((random_bytes.len() * 2) as u16).expect("non-zero length");
+        let mut expander = X::expand_message(&[msg], &dst, len).expect("bad dst");
+        expander
+            .fill_bytes(&mut random_bytes)
+            .expect("expanded bytes available");
+        let u0 = FieldElement::reduce(&random_bytes);
+        expander
+            .fill_bytes(&mut random_bytes)
+            .expect("expanded bytes available");
+        let u1 = FieldElement::reduce(&random_bytes);
         let mut q0 = u0.map_to_curve_elligator2();
         let mut q1 = u1.map_to_curve_elligator2();
         q0 = q0.isogeny();
@@ -775,7 +811,7 @@ impl EdwardsPoint {
     ///
     /// Encode using the default domain separation tag and hash function
     pub fn encode_with_defaults(msg: &[u8]) -> Self {
-        Self::encode::<ExpandMsgXof<sha3::Shake256>>(msg, DEFAULT_ENCODE_TO_CURVE_SUITE)
+        Self::encode::<ExpandMsgXof<shake::Shake256>>(msg, DEFAULT_ENCODE_TO_CURVE_SUITE)
     }
 
     /// Encode a message to a point on the curve
@@ -784,13 +820,16 @@ impl EdwardsPoint {
     /// see <https://datatracker.ietf.org/doc/rfc9380/>
     pub fn encode<X>(msg: &[u8], dst: &[u8]) -> Self
     where
-        X: for<'a> ExpandMsg<'a>,
+        X: ExpandMsg<U28>,
     {
         let mut random_bytes = GenericArray::<u8, U84>::default();
         let dst = [dst];
-        let mut expander = X::expand_message(&[msg], &dst, random_bytes.len()).expect("bad dst");
-        expander.fill_bytes(&mut random_bytes);
-        let u0 = FieldElement::from_okm(&random_bytes);
+        let len = NonZeroU16::new(random_bytes.len() as u16).expect("non-zero length");
+        let mut expander = X::expand_message(&[msg], &dst, len).expect("bad dst");
+        expander
+            .fill_bytes(&mut random_bytes)
+            .expect("expanded bytes available");
+        let u0 = FieldElement::reduce(&random_bytes);
         let mut q0 = u0.map_to_curve_elligator2();
         q0 = q0.isogeny();
 
@@ -975,12 +1014,87 @@ impl Mul<&Scalar> for &EdwardsPoint {
     }
 }
 
+impl MulVartime<Scalar> for EdwardsPoint {
+    fn mul_vartime(self, rhs: Scalar) -> Self::Output {
+        self * rhs
+    }
+}
+
+impl<'a> MulVartime<&'a Scalar> for EdwardsPoint {
+    fn mul_vartime(self, rhs: &'a Scalar) -> Self::Output {
+        self * rhs
+    }
+}
+
 impl Mul<&EdwardsPoint> for &Scalar {
     type Output = EdwardsPoint;
 
     /// Scalar multiplication: compute `scalar * self`.
     fn mul(self, point: &EdwardsPoint) -> EdwardsPoint {
         point * self
+    }
+}
+
+impl Mul<&AffinePoint> for &Scalar {
+    type Output = EdwardsPoint;
+
+    fn mul(self, point: &AffinePoint) -> EdwardsPoint {
+        point * self
+    }
+}
+
+define_mul_variants!(LHS = Scalar, RHS = AffinePoint, Output = EdwardsPoint);
+
+impl MulVartime<EdwardsPoint> for Scalar {
+    fn mul_vartime(self, rhs: EdwardsPoint) -> Self::Output {
+        self * rhs
+    }
+}
+
+impl<'a> MulVartime<&'a EdwardsPoint> for Scalar {
+    fn mul_vartime(self, rhs: &'a EdwardsPoint) -> Self::Output {
+        self * rhs
+    }
+}
+
+impl Mul<&Scalar> for &AffinePoint {
+    type Output = EdwardsPoint;
+
+    fn mul(self, scalar: &Scalar) -> Self::Output {
+        self.to_edwards() * scalar
+    }
+}
+
+define_mul_variants!(LHS = AffinePoint, RHS = Scalar, Output = EdwardsPoint);
+
+impl MulVartime<AffinePoint> for Scalar {
+    fn mul_vartime(self, rhs: AffinePoint) -> Self::Output {
+        self * rhs
+    }
+}
+
+impl<'a> MulVartime<&'a AffinePoint> for Scalar {
+    fn mul_vartime(self, rhs: &'a AffinePoint) -> Self::Output {
+        self * rhs
+    }
+}
+
+impl Neg for &AffinePoint {
+    type Output = AffinePoint;
+
+    fn neg(self) -> Self::Output {
+        AffinePoint {
+            x: -self.x,
+            y: self.y,
+        }
+    }
+}
+
+impl Neg for AffinePoint {
+    type Output = AffinePoint;
+
+    fn neg(self) -> Self::Output {
+        -&self
     }
 }
 
@@ -1014,7 +1128,7 @@ mod tests {
 
     fn hex_to_field(hex: &'static str) -> FieldElement {
         assert_eq!(hex.len(), 56 * 2);
-        let mut bytes = hex_literal::decode(&[hex.as_bytes()]);
+        let mut bytes = hex_literal::decode(&[hex.as_bytes()]).expect("valid field hex");
         bytes.reverse();
         FieldElement::from_bytes(&bytes)
     }
@@ -1071,13 +1185,13 @@ mod tests {
         let decompressed_point = gen.compress().decompress();
         assert!(<Choice as Into<bool>>::into(decompressed_point.is_some()));
 
-        assert!(gen == decompressed_point.unwrap());
+        assert!(gen == decompressed_point.expect("decompress generator"));
     }
     #[test]
     fn test_decompress_compress() {
         let bytes = hex!("649c6a53b109897d962d033f23d01fd4e1053dddf3746d2ddce9bd66aea38ccfc3df061df03ca399eb806312ab3037c0c31523142956ada780");
         let compressed = CompressedEdwardsY(bytes);
-        let decompressed = compressed.decompress().unwrap();
+        let decompressed = compressed.decompress().expect("decompress generated point");
 
         let recompressed = decompressed.compress();
 
@@ -1087,14 +1201,14 @@ mod tests {
     fn test_just_decompress() {
         let bytes = hex!("649c6a53b109897d962d033f23d01fd4e1053dddf3746d2ddce9bd66aea38ccfc3df061df03ca399eb806312ab3037c0c31523142956ada780");
         let compressed = CompressedEdwardsY(bytes);
-        let decompressed = compressed.decompress().unwrap();
+        let decompressed = compressed.decompress().expect("decompress generator");
 
         assert_eq!(decompressed.X, hex_to_field("39c41cea305d737df00de8223a0d5f4d48c8e098e16e9b4b2f38ac353262e119cb5ff2afd6d02464702d9d01c9921243fc572f9c718e2527"));
         assert_eq!(decompressed.Y, hex_to_field("a7ad5629142315c3c03730ab126380eb99a33cf01d06dfc3cf8ca3ae66bde9dc2d6d74f3dd3d05e1d41fd0233f032d967d8909b1536a9c64"));
 
         let bytes = hex!("010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000");
         let compressed = CompressedEdwardsY(bytes);
-        let decompressed = compressed.decompress().unwrap();
+        let decompressed = compressed.decompress().expect("decompress point");
 
         assert_eq!(decompressed.X, hex_to_field("0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"));
         assert_eq!(decompressed.Y, hex_to_field("0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001"));
@@ -1122,7 +1236,7 @@ mod tests {
         ];
 
         for (msg, x, y) in MSGS {
-            let p = EdwardsPoint::hash::<ExpandMsgXof<sha3::Shake256>>(msg, DST);
+            let p = EdwardsPoint::hash::<ExpandMsgXof<shake::Shake256>>(msg, DST);
             assert_eq!(p.is_on_curve().unwrap_u8(), 1u8);
             let p = p.to_affine();
             let mut xx = [0u8; 56];
@@ -1138,9 +1252,13 @@ mod tests {
 
     #[test]
     fn hash_fuzzing() {
+        use rand_core::Rng;
+        use rand_core::SeedableRng;
+
+        let mut rng = rand_chacha::ChaCha8Rng::from_seed([7u8; 32]);
         for _ in 0..25 {
             let mut msg = [0u8; 64];
-            rand_core::OsRng.fill_bytes(&mut msg);
+            rng.fill_bytes(&mut msg);
             let p = EdwardsPoint::hash_with_defaults(&msg);
             assert_eq!(p.is_on_curve().unwrap_u8(), 1u8);
             assert_eq!(p.is_torsion_free().unwrap_u8(), 1u8);
@@ -1159,7 +1277,7 @@ mod tests {
         ];
 
         for (msg, x, y) in MSGS {
-            let p = EdwardsPoint::encode::<ExpandMsgXof<sha3::Shake256>>(msg, DST);
+            let p = EdwardsPoint::encode::<ExpandMsgXof<shake::Shake256>>(msg, DST);
             assert_eq!(p.is_on_curve().unwrap_u8(), 1u8);
             let p = p.to_affine();
             let mut xx = [0u8; 56];
@@ -1176,6 +1294,7 @@ mod tests {
     #[test]
     fn test_sum_of_products() {
         use elliptic_curve_tools::SumOfProducts;
+
         let values = [
             (Scalar::from(8u8), EdwardsPoint::GENERATOR),
             (Scalar::from(9u8), EdwardsPoint::GENERATOR),

@@ -13,9 +13,10 @@ use core::{
 };
 use crypto_signature::Error;
 use elliptic_curve::Group;
-use sha3::{
+use sha3::Digest;
+use shake::{
     digest::{ExtendableOutput, Update, XofReader},
-    Digest, Shake256,
+    Shake256,
 };
 
 /// Ed448 public key as defined in [RFC8032 § 5.2.5]
@@ -57,9 +58,15 @@ impl crypto_signature::Verifier<Signature> for VerifyingKey {
 
 impl<D> crypto_signature::DigestVerifier<D, Signature> for VerifyingKey
 where
-    D: Digest,
+    D: Digest + crypto_signature::digest::Update,
 {
-    fn verify_digest(&self, digest: D, signature: &Signature) -> Result<(), Error> {
+    fn verify_digest<F: Fn(&mut D) -> Result<(), Error>>(
+        &self,
+        f: F,
+        signature: &Signature,
+    ) -> Result<(), Error> {
+        let mut digest = D::new();
+        f(&mut digest)?;
         let mut prehashed_message = [0u8; 64];
         prehashed_message.copy_from_slice(digest.finalize().as_slice());
         self.verify_inner(signature, 1, &[], &prehashed_message)
@@ -74,9 +81,15 @@ impl crypto_signature::Verifier<Signature> for Context<'_, '_, VerifyingKey> {
 
 impl<D> crypto_signature::DigestVerifier<D, Signature> for Context<'_, '_, VerifyingKey>
 where
-    D: Digest,
+    D: Digest + crypto_signature::digest::Update,
 {
-    fn verify_digest(&self, digest: D, signature: &Signature) -> Result<(), Error> {
+    fn verify_digest<F: Fn(&mut D) -> Result<(), Error>>(
+        &self,
+        f: F,
+        signature: &Signature,
+    ) -> Result<(), Error> {
+        let mut digest = D::new();
+        f(&mut digest)?;
         let mut prehashed_message = [0u8; 64];
         prehashed_message.copy_from_slice(digest.finalize().as_slice());
         self.key
@@ -300,8 +313,8 @@ impl VerifyingKey {
             return Err(SigningError::InvalidSignatureRComponent.into());
         }
 
-        let s_bytes = ScalarBytes::from_slice(&signature.s);
-        let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(s_bytes))
+        let s_bytes = ScalarBytes::from(signature.s);
+        let s = Option::<Scalar>::from(Scalar::from_canonical_bytes(&s_bytes))
             .ok_or(SigningError::InvalidSignatureSComponent)?;
 
         if s.is_zero().into() {
@@ -408,14 +421,14 @@ mod tests {
     fn signatures() {
         for tv in TEST_VECTORS.iter() {
             let mut seed = SecretKey::default();
-            hex::decode_to_slice(tv.s, &mut seed).unwrap();
+            hex::decode_to_slice(tv.s, &mut seed).expect("decode seed");
             let mut q_enc = [0u8; PUBLIC_KEY_LENGTH];
-            hex::decode_to_slice(tv.q, &mut q_enc).unwrap();
-            let msg = hex::decode(tv.m).unwrap();
-            let ctx = hex::decode(tv.ctx).unwrap();
+            hex::decode_to_slice(tv.q, &mut q_enc).expect("decode public key");
+            let msg = hex::decode(tv.m).expect("decode message");
+            let ctx = hex::decode(tv.ctx).expect("decode context");
             let mut sig = [0u8; 114];
-            hex::decode_to_slice(tv.sig, &mut sig[..]).unwrap();
-            let sig = Signature::try_from(&sig[..]).unwrap();
+            hex::decode_to_slice(tv.sig, &mut sig[..]).expect("decode signature");
+            let sig = Signature::try_from(&sig[..]).expect("parse signature");
 
             let skey = SigningKey::from(&seed);
             assert_eq!(&q_enc[..], skey.verifying_key().as_bytes());
@@ -425,17 +438,20 @@ mod tests {
                         Some(&ctx[..]),
                         Shake256::default().chain(&msg).into(),
                     )
-                    .unwrap(),
+                    .expect("sign prehashed message"),
                     sig
                 );
             } else {
-                assert_eq!(skey.sign_ctx(&ctx[..], &msg[..]).unwrap(), sig);
-                if ctx.len() == 0 {
+                assert_eq!(
+                    skey.sign_ctx(&ctx[..], &msg[..]).expect("sign context"),
+                    sig
+                );
+                if ctx.is_empty() {
                     assert_eq!(skey.sign_raw(&msg[..]), sig);
                 }
             }
 
-            let pkey = VerifyingKey::from_bytes(&q_enc).unwrap();
+            let pkey = VerifyingKey::from_bytes(&q_enc).expect("parse public key");
             if tv.ph {
                 let mut reader = Shake256::default().chain(&msg).finalize_xof();
                 let mut hm = [0u8; 64];
@@ -448,7 +464,7 @@ mod tests {
                 assert!(pkey.verify_ctx(&sig, &ctx[..], &msg[..]).is_ok());
                 assert!(pkey.verify_ctx(&sig, &[1u8], &msg[..]).is_err());
                 assert!(pkey.verify_ctx(&sig, &ctx[..], &[0u8]).is_err());
-                if ctx.len() == 0 {
+                if ctx.is_empty() {
                     assert!(pkey.verify_raw(&sig, &msg[..]).is_ok());
                 }
             }
@@ -465,12 +481,14 @@ mod tests {
         let signing_key = SigningKey::generate(&mut rng);
         let verifying_key = signing_key.verifying_key();
 
-        let bytes = serde_bare::to_vec(&verifying_key).unwrap();
-        let verifying_key2: VerifyingKey = serde_bare::from_slice(&bytes).unwrap();
+        let bytes = serde_bare::to_vec(&verifying_key).expect("serialize verifying key");
+        let verifying_key2: VerifyingKey =
+            serde_bare::from_slice(&bytes).expect("deserialize verifying key");
         assert_eq!(verifying_key, verifying_key2);
 
-        let string = serde_json::to_string(&verifying_key).unwrap();
-        let verifying_key3: VerifyingKey = serde_json::from_str(&string).unwrap();
+        let string = serde_json::to_string(&verifying_key).expect("serialize verifying key json");
+        let verifying_key3: VerifyingKey =
+            serde_json::from_str(&string).expect("deserialize verifying key json");
         assert_eq!(verifying_key, verifying_key3);
     }
 }

@@ -7,14 +7,10 @@ pub use scalar::{Scalar, ScalarBytes, WideScalarBytes, MODULUS_LIMBS, ORDER, WID
 use crate::curve::edwards::EdwardsPoint;
 use crate::curve::twedwards::extended::ExtendedPoint as TwExtendedPoint;
 
-use elliptic_curve::bigint::{
-    impl_modulus,
-    modular::constant_mod::{Residue, ResidueParams},
-    U448,
-};
+use elliptic_curve::bigint::{const_monty_params, modular::ConstMontyForm, U448};
 
-impl_modulus!(MODULUS, U448, "fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-pub(crate) type ResidueType = Residue<MODULUS, { MODULUS::LIMBS }>;
+const_monty_params!(MODULUS, U448, "fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+pub(crate) type ResidueType = ConstMontyForm<MODULUS, { U448::LIMBS }>;
 
 pub const GOLDILOCKS_BASE_POINT: EdwardsPoint = EdwardsPoint {
     X: FieldElement(ResidueType::new(&U448::from_be_hex("4f1970c66bed0ded221d15a622bf36da9e146570470f1767ea6de324a3d3a46412ae1af72ab66511433b80e18b00938e2626a82bc70cc05e"))),

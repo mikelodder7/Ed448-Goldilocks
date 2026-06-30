@@ -2,23 +2,25 @@ use crate::*;
 
 use core::fmt::{Display, Formatter, Result as FmtResult};
 use core::iter::{Product, Sum};
+use core::num::NonZeroU16;
 use core::ops::{
     Add, AddAssign, Index, IndexMut, Mul, MulAssign, Neg, Shr, ShrAssign, Sub, SubAssign,
 };
-use crypto_bigint::Zero;
 use elliptic_curve::{
-    bigint::{Encoding, Limb, NonZero, U448, U704, U896},
-    ff::{helpers, Field, FieldBits, PrimeFieldBits},
-    generic_array::{
-        typenum::{U114, U57, U84, U88},
-        GenericArray,
+    array::{
+        typenum::{U114, U28, U57, U84, U88},
+        Array as GenericArray,
     },
-    hash2curve::{ExpandMsg, Expander, FromOkm},
-    ops::{Invert, Reduce, ReduceNonZero},
-    scalar::{FromUintUnchecked, IsHigh, ScalarPrimitive},
-    PrimeField,
+    bigint::{Limb, NonZero, U448, U704, U896},
+    common::Generate,
+    ctutils::{CtEq, CtSelect},
+    ff::{helpers, Field, FieldBits, PrimeFieldBits},
+    ops::{Invert, Reduce, ReduceNonZero, Retrieve},
+    scalar::{FromUintUnchecked, IsHigh, ScalarValue},
+    Error, PrimeField,
 };
-use rand_core::{CryptoRng, RngCore};
+use hash2curve::{ExpandMsg, Expander};
+use rand_core::{CryptoRng, Rng, TryCryptoRng, TryRng};
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq, ConstantTimeGreater, CtOption};
 
 /// This is the scalar field
@@ -34,6 +36,9 @@ pub type WideScalarBytes = GenericArray<u8, U114>;
 
 /// The order of the scalar field
 pub const ORDER: U448 = U448::from_be_hex("3fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3");
+const ORDER_NONZERO: NonZero<U448> = NonZero::<U448>::from_be_hex(
+    "3fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3",
+);
 const ORDER_MINUS_ONE: U448 = ORDER.wrapping_sub(&U448::ONE);
 const HALF_ORDER: U448 = ORDER.shr_vartime(1);
 /// The wide order of the scalar field
@@ -58,7 +63,13 @@ impl Display for Scalar {
 
 impl ConstantTimeEq for Scalar {
     fn ct_eq(&self, other: &Self) -> Choice {
-        self.to_bytes().ct_eq(&other.to_bytes())
+        self.to_bytes().ct_eq(&other.to_bytes()).into()
+    }
+}
+
+impl CtEq for Scalar {
+    fn ct_eq(&self, other: &Self) -> elliptic_curve::ctutils::Choice {
+        ConstantTimeEq::ct_eq(self, other).into()
     }
 }
 
@@ -68,9 +79,15 @@ impl ConditionallySelectable for Scalar {
     }
 }
 
+impl CtSelect for Scalar {
+    fn ct_select(&self, other: &Self, choice: elliptic_curve::ctutils::Choice) -> Self {
+        Self::conditional_select(self, other, choice.into())
+    }
+}
+
 impl PartialEq for Scalar {
     fn eq(&self, other: &Scalar) -> bool {
-        self.ct_eq(other).into()
+        ConstantTimeEq::ct_eq(self, other).into()
     }
 }
 
@@ -116,7 +133,7 @@ impl Index<usize> for Scalar {
 
 impl IndexMut<usize> for Scalar {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.0.as_words_mut()[index]
+        &mut self.0.as_mut_words()[index]
     }
 }
 
@@ -253,10 +270,10 @@ impl Field for Scalar {
     const ONE: Self = Self::ONE;
     const ZERO: Self = Self::ZERO;
 
-    fn random(mut rng: impl RngCore) -> Self {
+    fn try_random<R: TryRng + ?Sized>(rng: &mut R) -> Result<Self, R::Error> {
         let mut seed = WideScalarBytes::default();
-        rng.fill_bytes(&mut seed);
-        Scalar::from_bytes_mod_order_wide(&seed)
+        rng.try_fill_bytes(&mut seed)?;
+        Ok(Scalar::from_bytes_mod_order_wide(&seed))
     }
 
     fn square(&self) -> Self {
@@ -268,7 +285,7 @@ impl Field for Scalar {
     }
 
     fn invert(&self) -> CtOption<Self> {
-        CtOption::new(self.invert(), !self.ct_eq(&Self::ZERO))
+        CtOption::new(self.invert(), !ConstantTimeEq::ct_eq(self, &Self::ZERO))
     }
 
     fn sqrt_ratio(num: &Self, div: &Self) -> (Choice, Self) {
@@ -328,24 +345,6 @@ impl From<&Scalar> for ScalarBytes {
     }
 }
 
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl TryFrom<Vec<u8>> for Scalar {
-    type Error = &'static str;
-
-    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
-        Self::try_from(&bytes[..])
-    }
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl TryFrom<&Vec<u8>> for Scalar {
-    type Error = &'static str;
-
-    fn try_from(bytes: &Vec<u8>) -> Result<Self, Self::Error> {
-        Self::try_from(&bytes[..])
-    }
-}
-
 impl TryFrom<&[u8]> for Scalar {
     type Error = &'static str;
 
@@ -353,18 +352,10 @@ impl TryFrom<&[u8]> for Scalar {
         if bytes.len() != 57 {
             return Err("invalid byte length");
         }
-        let scalar_bytes = ScalarBytes::clone_from_slice(bytes);
+        let mut scalar_bytes = ScalarBytes::default();
+        scalar_bytes.copy_from_slice(bytes);
         Option::<Scalar>::from(Scalar::from_canonical_bytes(&scalar_bytes))
             .ok_or("scalar was not canonically encoded")
-    }
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl TryFrom<Box<[u8]>> for Scalar {
-    type Error = &'static str;
-
-    fn try_from(bytes: Box<[u8]>) -> Result<Self, Self::Error> {
-        Self::try_from(bytes.as_ref())
     }
 }
 
@@ -415,11 +406,9 @@ impl core::fmt::UpperHex for Scalar {
     }
 }
 
-impl FromOkm for Scalar {
-    type Length = U84;
-
-    fn from_okm(data: &GenericArray<u8, Self::Length>) -> Self {
-        const SEMI_WIDE_MODULUS: NonZero<U704> = NonZero::from_uint(U704::from_be_hex("00000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3"));
+impl Reduce<GenericArray<u8, U84>> for Scalar {
+    fn reduce(data: &GenericArray<u8, U84>) -> Self {
+        const SEMI_WIDE_MODULUS: NonZero<U704> = NonZero::<U704>::from_be_hex("00000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3");
         let mut tmp = GenericArray::<u8, U88>::default();
         tmp[4..].copy_from_slice(&data[..]);
 
@@ -432,60 +421,64 @@ impl FromOkm for Scalar {
 }
 
 impl Reduce<U448> for Scalar {
-    type Bytes = ScalarBytes;
-
-    fn reduce(bytes: U448) -> Self {
-        let (r, underflow) = bytes.sbb(&ORDER, Limb::ZERO);
+    fn reduce(bytes: &U448) -> Self {
+        let (r, underflow) = bytes.borrowing_sub(&ORDER, Limb::ZERO);
         let underflow = Choice::from((underflow.0 >> (Limb::BITS - 1)) as u8);
-        Self(U448::conditional_select(&bytes, &r, !underflow))
+        Self(U448::conditional_select(bytes, &r, !underflow))
     }
+}
 
-    fn reduce_bytes(bytes: &Self::Bytes) -> Self {
-        Self::reduce(U448::from_le_slice(bytes))
+impl Reduce<ScalarBytes> for Scalar {
+    fn reduce(bytes: &ScalarBytes) -> Self {
+        Self::reduce(&U448::from_le_slice(bytes))
     }
 }
 
 impl Reduce<U896> for Scalar {
-    type Bytes = WideScalarBytes;
-
-    fn reduce(bytes: U896) -> Self {
-        let (r, underflow) = bytes.sbb(&WIDE_ORDER, Limb::ZERO);
+    fn reduce(bytes: &U896) -> Self {
+        let (r, underflow) = bytes.borrowing_sub(&WIDE_ORDER, Limb::ZERO);
         let underflow = Choice::from((underflow.0 >> (Limb::BITS - 1)) as u8);
-        Self(U896::conditional_select(&bytes, &r, !underflow).split().1)
+        Self(U896::conditional_select(bytes, &r, !underflow).split().1)
     }
+}
 
-    fn reduce_bytes(bytes: &Self::Bytes) -> Self {
+impl Reduce<WideScalarBytes> for Scalar {
+    fn reduce(bytes: &WideScalarBytes) -> Self {
         Self::from_bytes_mod_order_wide(bytes)
     }
 }
 
 impl ReduceNonZero<U448> for Scalar {
-    fn reduce_nonzero(bytes: U448) -> Self {
-        let (r, underflow) = bytes.sbb(&ORDER_MINUS_ONE, Limb::ZERO);
+    fn reduce_nonzero(bytes: &U448) -> Self {
+        let (r, underflow) = bytes.borrowing_sub(&ORDER_MINUS_ONE, Limb::ZERO);
         let underflow = Choice::from((underflow.0 >> (Limb::BITS - 1)) as u8);
-        Self(U448::conditional_select(&bytes, &r, !underflow).wrapping_add(&U448::ONE))
+        Self(U448::conditional_select(bytes, &r, !underflow).wrapping_add(&U448::ONE))
     }
+}
 
-    fn reduce_nonzero_bytes(bytes: &Self::Bytes) -> Self {
-        Self::reduce_nonzero(U448::from_le_slice(bytes))
+impl ReduceNonZero<ScalarBytes> for Scalar {
+    fn reduce_nonzero(bytes: &ScalarBytes) -> Self {
+        Self::reduce_nonzero(&U448::from_le_slice(bytes))
     }
 }
 
 impl ReduceNonZero<U896> for Scalar {
-    fn reduce_nonzero(bytes: U896) -> Self {
-        let (r, underflow) = bytes.sbb(&WIDE_ORDER_MINUS_ONE, Limb::ZERO);
+    fn reduce_nonzero(bytes: &U896) -> Self {
+        let (r, underflow) = bytes.borrowing_sub(&WIDE_ORDER_MINUS_ONE, Limb::ZERO);
         let underflow = Choice::from((underflow.0 >> (Limb::BITS - 1)) as u8);
 
         Self(
-            U896::conditional_select(&bytes, &r, !underflow)
+            U896::conditional_select(bytes, &r, !underflow)
                 .split()
                 .1
                 .wrapping_add(&U448::ONE),
         )
     }
+}
 
-    fn reduce_nonzero_bytes(bytes: &Self::Bytes) -> Self {
-        Self::reduce_nonzero(U896::from_le_slice(bytes))
+impl ReduceNonZero<WideScalarBytes> for Scalar {
+    fn reduce_nonzero(bytes: &WideScalarBytes) -> Self {
+        Self::reduce_nonzero(&U896::from_le_slice(bytes))
     }
 }
 
@@ -501,63 +494,91 @@ impl PrimeFieldBits for Scalar {
     }
 }
 
-impl From<ScalarPrimitive<Ed448>> for Scalar {
-    fn from(scalar: ScalarPrimitive<Ed448>) -> Self {
+impl From<ScalarValue<Ed448>> for Scalar {
+    fn from(scalar: ScalarValue<Ed448>) -> Self {
         Self(*scalar.as_uint())
     }
 }
 
-impl From<&ScalarPrimitive<Ed448>> for Scalar {
-    fn from(scalar: &ScalarPrimitive<Ed448>) -> Self {
+impl From<Ed448NonZeroScalar> for Scalar {
+    fn from(scalar: Ed448NonZeroScalar) -> Self {
+        *scalar.as_ref()
+    }
+}
+
+impl TryFrom<Scalar> for Ed448NonZeroScalar {
+    type Error = Error;
+
+    fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
+        Option::from(Self::new(scalar)).ok_or(Error)
+    }
+}
+
+impl From<&ScalarValue<Ed448>> for Scalar {
+    fn from(scalar: &ScalarValue<Ed448>) -> Self {
         let uint = *scalar.as_uint();
         uint.into()
     }
 }
 
-impl From<Scalar> for ScalarPrimitive<Ed448> {
+impl From<Scalar> for ScalarValue<Ed448> {
     fn from(scalar: Scalar) -> Self {
         let uint: U448 = scalar.into();
         Self::from_uint_unchecked(uint)
     }
 }
 
-impl From<&Scalar> for ScalarPrimitive<Ed448> {
+impl From<&Scalar> for ScalarValue<Ed448> {
     fn from(scalar: &Scalar) -> Self {
         let uint: U448 = scalar.into();
-        ScalarPrimitive::from_uint_unchecked(uint)
+        ScalarValue::from_uint_unchecked(uint)
     }
 }
 
-impl From<ScalarPrimitive<Decaf448>> for Scalar {
-    fn from(scalar: ScalarPrimitive<Decaf448>) -> Self {
+impl From<ScalarValue<Decaf448>> for Scalar {
+    fn from(scalar: ScalarValue<Decaf448>) -> Self {
         Self(*scalar.as_uint())
     }
 }
 
-impl From<&ScalarPrimitive<Decaf448>> for Scalar {
-    fn from(scalar: &ScalarPrimitive<Decaf448>) -> Self {
+impl From<Decaf448NonZeroScalar> for Scalar {
+    fn from(scalar: Decaf448NonZeroScalar) -> Self {
+        *scalar.as_ref()
+    }
+}
+
+impl TryFrom<Scalar> for Decaf448NonZeroScalar {
+    type Error = Error;
+
+    fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
+        Option::from(Self::new(scalar)).ok_or(Error)
+    }
+}
+
+impl From<&ScalarValue<Decaf448>> for Scalar {
+    fn from(scalar: &ScalarValue<Decaf448>) -> Self {
         let uint = *scalar.as_uint();
         uint.into()
     }
 }
 
-impl From<Scalar> for ScalarPrimitive<Decaf448> {
+impl From<Scalar> for ScalarValue<Decaf448> {
     fn from(scalar: Scalar) -> Self {
         let uint: U448 = scalar.into();
         Self::from_uint_unchecked(uint)
     }
 }
 
-impl From<&Scalar> for ScalarPrimitive<Decaf448> {
+impl From<&Scalar> for ScalarValue<Decaf448> {
     fn from(scalar: &Scalar) -> Self {
         let uint: U448 = scalar.into();
-        ScalarPrimitive::from_uint_unchecked(uint)
+        ScalarValue::from_uint_unchecked(uint)
     }
 }
 
 impl From<U448> for Scalar {
     fn from(uint: U448) -> Self {
-        <Self as Reduce<U448>>::reduce(uint)
+        <Self as Reduce<U448>>::reduce(&uint)
     }
 }
 
@@ -579,6 +600,22 @@ impl From<&Scalar> for U448 {
     }
 }
 
+impl Retrieve for Scalar {
+    type Output = U448;
+
+    fn retrieve(&self) -> Self::Output {
+        self.0
+    }
+}
+
+impl Generate for Scalar {
+    fn try_generate_from_rng<R: TryCryptoRng + ?Sized>(rng: &mut R) -> Result<Self, R::Error> {
+        let mut seed = WideScalarBytes::default();
+        rng.try_fill_bytes(&mut seed)?;
+        Ok(Self::from_bytes_mod_order_wide(&seed))
+    }
+}
+
 impl FromUintUnchecked for Scalar {
     type Uint = U448;
 
@@ -591,7 +628,7 @@ impl Invert for Scalar {
     type Output = CtOption<Self>;
 
     fn invert(&self) -> CtOption<Self> {
-        CtOption::new(self.invert(), !self.ct_eq(&Self::ZERO))
+        CtOption::new(self.invert(), !ConstantTimeEq::ct_eq(self, &Self::ZERO))
     }
 }
 
@@ -650,7 +687,7 @@ impl Scalar {
 
     /// Compute `self` + `rhs` mod ℓ
     pub const fn addition(&self, rhs: &Self) -> Self {
-        Self(self.0.add_mod(&rhs.0, &ORDER))
+        Self(self.0.add_mod(&rhs.0, &ORDER_NONZERO))
     }
 
     /// Compute `self` + `self` mod ℓ
@@ -660,24 +697,24 @@ impl Scalar {
 
     /// Compute `self` - `rhs` mod ℓ
     pub const fn subtract(&self, rhs: &Self) -> Self {
-        Self(self.0.sub_mod(&rhs.0, &ORDER))
+        Self(self.0.sub_mod(&rhs.0, &ORDER_NONZERO))
     }
 
     /// Compute `self` * `rhs` mod ℓ
     pub const fn multiply(&self, rhs: &Self) -> Self {
-        let wide_value = self.0.mul_wide(&rhs.0);
-        Self(U448::const_rem_wide(wide_value, &ORDER).0)
+        let wide_value = self.0.widening_mul(&rhs.0);
+        Self(U448::rem_wide(wide_value, &ORDER_NONZERO))
     }
 
     /// Square this scalar
     pub const fn square(&self) -> Self {
-        let value = self.0.square_wide();
-        Self(U448::const_rem_wide(value, &ORDER).0)
+        let value = self.0.widening_square();
+        Self(U448::rem_wide(value, &ORDER_NONZERO))
     }
 
     /// Is this scalar equal to zero?
     pub fn is_zero(&self) -> Choice {
-        self.0.is_zero()
+        self.0.is_zero().into()
     }
 
     /// Divides a scalar by four without reducing mod p
@@ -803,7 +840,7 @@ impl Scalar {
             0xffffffffffffffff,
             0x0fffffffffffffff,
         ]);
-        CtOption::new(ss, ss.square().ct_eq(self))
+        CtOption::new(ss, ConstantTimeEq::ct_eq(&ss.square(), self))
     }
 
     /// Halves a Scalar modulo the prime
@@ -825,7 +862,7 @@ impl Scalar {
         let candidate = Scalar::from_bytes(&bytes);
 
         // underflow means candidate < ORDER, thus canonical
-        let (_, underflow) = candidate.0.sbb(&ORDER, Limb::ZERO);
+        let (_, underflow) = candidate.0.borrowing_sub(&ORDER, Limb::ZERO);
         let underflow = Choice::from((underflow.0 >> (Limb::BITS - 1)) as u8);
         CtOption::new(candidate, underflow & is_valid)
     }
@@ -849,17 +886,17 @@ impl Scalar {
         );
         let mut top = [0u8; 56];
         top[..2].copy_from_slice(&input[112..]);
-        let upper = U448::from_le_slice(&top).mul_wide(&TOP_MULTIPLIER);
+        let upper = U448::from_le_slice(&top).widening_mul(&TOP_MULTIPLIER);
 
-        let bottom = U448::const_rem_wide(value, &ORDER).0;
-        let top = U448::const_rem_wide(upper, &ORDER).0;
-        Self(bottom.add_mod(&top, &ORDER))
+        let bottom = U448::rem_wide(value, &ORDER_NONZERO);
+        let top = U448::rem_wide(upper, &ORDER_NONZERO);
+        Self(bottom.add_mod(&top, &ORDER_NONZERO))
     }
 
     /// Construct a Scalar by reducing a 448-bit little-endian integer modulo the group order ℓ
     pub fn from_bytes_mod_order(input: &ScalarBytes) -> Scalar {
         let value = U448::from_le_slice(&input[..56]);
-        Self(value.const_rem(&ORDER).0)
+        Self(value.rem_vartime(&ORDER_NONZERO))
     }
 
     /// Return a `Scalar` chosen uniformly at random using a user-provided RNG.
@@ -871,7 +908,7 @@ impl Scalar {
     /// # Returns
     ///
     /// A random scalar within ℤ/lℤ.
-    pub fn random<R: RngCore + CryptoRng>(rng: &mut R) -> Self {
+    pub fn random<R: Rng + CryptoRng + ?Sized>(rng: &mut R) -> Self {
         let mut scalar_bytes = WideScalarBytes::default();
         rng.fill_bytes(&mut scalar_bytes);
         Scalar::from_bytes_mod_order_wide(&scalar_bytes)
@@ -886,20 +923,22 @@ impl Scalar {
     /// - [`ExpandMsgXmd`]
     /// - [`ExpandMsgXof`]
     ///
-    /// `len_in_bytes = <Self::Scalar as FromOkm>::Length`
+    /// `len_in_bytes = 84`
     ///
     /// [`ExpandMsgXmd`]: crate::hash2curve::ExpandMsgXmd
     /// [`ExpandMsgXof`]: crate::hash2curve::ExpandMsgXof
     pub fn hash<X>(msg: &[u8], dst: &[u8]) -> Self
     where
-        X: for<'a> ExpandMsg<'a>,
+        X: ExpandMsg<U28>,
     {
         let mut random_bytes = GenericArray::<u8, U84>::default();
         let dst = [dst];
-        let mut expander =
-            X::expand_message(&[msg], &dst, random_bytes.len()).expect("invalid dst");
-        expander.fill_bytes(&mut random_bytes);
-        Self::from_okm(&random_bytes)
+        let len = NonZeroU16::new(random_bytes.len() as u16).expect("non-zero length");
+        let mut expander = X::expand_message(&[msg], &dst, len).expect("invalid dst");
+        expander
+            .fill_bytes(&mut random_bytes)
+            .expect("expanded bytes available");
+        Self::reduce(&random_bytes)
     }
 }
 
@@ -1024,19 +1063,19 @@ mod test {
     #[test]
     fn test_from_canonical_bytes() {
         // ff..ff should fail
-        let mut bytes = ScalarBytes::clone_from_slice(&hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"));
+        let mut bytes = ScalarBytes::from(hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"));
         bytes.reverse();
         let s = Scalar::from_canonical_bytes(&bytes);
         assert!(<Choice as Into<bool>>::into(s.is_none()));
 
         // n should fail
-        let mut bytes = ScalarBytes::clone_from_slice(&hex!("003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3"));
+        let mut bytes = ScalarBytes::from(hex!("003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3"));
         bytes.reverse();
         let s = Scalar::from_canonical_bytes(&bytes);
         assert!(<Choice as Into<bool>>::into(s.is_none()));
 
         // n-1 should work
-        let mut bytes = ScalarBytes::clone_from_slice(&hex!("003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f2"));
+        let mut bytes = ScalarBytes::from(hex!("003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f2"));
         bytes.reverse();
         let s = Scalar::from_canonical_bytes(&bytes);
         match Option::<Scalar>::from(s) {
@@ -1048,29 +1087,29 @@ mod test {
     #[test]
     fn test_from_bytes_mod_order_wide() {
         // n should become 0
-        let mut bytes = WideScalarBytes::clone_from_slice(&hex!("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3"));
+        let mut bytes = WideScalarBytes::from(hex!("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f3"));
         bytes.reverse();
         let s = Scalar::from_bytes_mod_order_wide(&bytes);
         assert_eq!(s, Scalar::ZERO);
 
         // n-1 should stay the same
-        let mut bytes = WideScalarBytes::clone_from_slice(&hex!("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f2"));
+        let mut bytes = WideScalarBytes::from(hex!("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f2"));
         bytes.reverse();
         let s = Scalar::from_bytes_mod_order_wide(&bytes);
         assert_eq!(s, Scalar::ZERO - Scalar::ONE);
 
         // n+1 should become 1
-        let mut bytes = WideScalarBytes::clone_from_slice(&hex!("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f4"));
+        let mut bytes = WideScalarBytes::from(hex!("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003fffffffffffffffffffffffffffffffffffffffffffffffffffffff7cca23e9c44edb49aed63690216cc2728dc58f552378c292ab5844f4"));
         bytes.reverse();
         let s = Scalar::from_bytes_mod_order_wide(&bytes);
         assert_eq!(s, Scalar::ONE);
 
         // 2^912-1 should become 0x2939f823b7292052bcb7e4d070af1a9cc14ba3c47c44ae17cf72c985bb24b6c520e319fb37a63e29800f160787ad1d2e11883fa931e7de81
-        let bytes = WideScalarBytes::clone_from_slice(&hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"));
+        let bytes = WideScalarBytes::from(hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"));
         let s = Scalar::from_bytes_mod_order_wide(&bytes);
-        let mut bytes = ScalarBytes::clone_from_slice(&hex!("002939f823b7292052bcb7e4d070af1a9cc14ba3c47c44ae17cf72c985bb24b6c520e319fb37a63e29800f160787ad1d2e11883fa931e7de81"));
+        let mut bytes = ScalarBytes::from(hex!("002939f823b7292052bcb7e4d070af1a9cc14ba3c47c44ae17cf72c985bb24b6c520e319fb37a63e29800f160787ad1d2e11883fa931e7de81"));
         bytes.reverse();
-        let reduced = Scalar::from_canonical_bytes(&bytes).unwrap();
+        let reduced = Scalar::from_canonical_bytes(&bytes).expect("canonical scalar");
         assert_eq!(s, reduced);
     }
 
@@ -1089,29 +1128,29 @@ mod test {
     fn serde() {
         let res = serde_json::to_string(&Scalar::TWO_INV);
         assert!(res.is_ok());
-        let sj = res.unwrap();
+        let sj = res.expect("serialize scalar");
 
         let res = serde_json::from_str::<Scalar>(&sj);
         assert!(res.is_ok());
-        assert_eq!(res.unwrap(), Scalar::TWO_INV);
+        assert_eq!(res.expect("deserialize scalar"), Scalar::TWO_INV);
 
         let res = serde_bare::to_vec(&Scalar::TWO_INV);
         assert!(res.is_ok());
-        let sb = res.unwrap();
+        let sb = res.expect("serialize scalar");
         assert_eq!(sb.len(), 57);
 
         let res = serde_bare::from_slice::<Scalar>(&sb);
         assert!(res.is_ok());
-        assert_eq!(res.unwrap(), Scalar::TWO_INV);
+        assert_eq!(res.expect("deserialize scalar"), Scalar::TWO_INV);
     }
 
     #[test]
     fn scalar_hash() {
         let msg = b"hello world";
         let dst = b"edwards448_XOF:SHAKE256_ELL2_RO_";
-        let res =
-            Scalar::hash::<elliptic_curve::hash2curve::ExpandMsgXof<sha3::Shake256>>(msg, dst);
+        let res = Scalar::hash::<hash2curve::ExpandMsgXof<shake::Shake256>>(msg, dst);
         let expected = hex_literal::hex!("2d32a08f09b88275cc5f437e625696b18de718ed94559e17e4d64aafd143a8527705132178b5ce7395ea6214735387398a35913656b4951300");
-        assert_eq!(res.to_bytes_rfc_8032(), expected.into());
+        let expected = ScalarBytes::from(expected);
+        assert_eq!(res.to_bytes_rfc_8032(), expected);
     }
 }
