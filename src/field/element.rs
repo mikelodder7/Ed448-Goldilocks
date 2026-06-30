@@ -4,8 +4,8 @@ use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use elliptic_curve::{
     array::Array as GenericArray,
     bigint::{
-        consts::{U84, U88},
         NonZero, U448, U704,
+        consts::{U84, U88},
     },
     ops::Reduce,
 };
@@ -66,7 +66,9 @@ impl Eq for FieldElement {}
 
 impl Reduce<GenericArray<u8, U84>> for FieldElement {
     fn reduce(data: &GenericArray<u8, U84>) -> Self {
-        const SEMI_WIDE_MODULUS: NonZero<U704> = NonZero::<U704>::from_be_hex("0000000000000000000000000000000000000000000000000000000000000000fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        const SEMI_WIDE_MODULUS: NonZero<U704> = NonZero::<U704>::from_be_hex(
+            "0000000000000000000000000000000000000000000000000000000000000000fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        );
         let mut tmp = GenericArray::<u8, U88>::default();
         tmp[4..].copy_from_slice(&data[..]);
 
@@ -177,17 +179,35 @@ impl Neg for FieldElement {
 }
 
 impl FieldElement {
-    pub const A_PLUS_TWO_OVER_FOUR: Self = Self(ResidueType::new(&U448::from_be_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000098aa")));
-    pub const DECAF_FACTOR: Self = Self(ResidueType::new(&U448::from_be_hex("22d962fbeb24f7683bf68d722fa26aa0a1f1a7b8a5b8d54b64a2d780968c14ba839a66f4fd6eded260337bf6aa20ce529642ef0f45572736")));
-    pub const EDWARDS_D: Self = Self(ResidueType::new(&U448::from_be_hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffff6756")));
+    pub const A_PLUS_TWO_OVER_FOUR: Self = Self(ResidueType::new(&U448::from_be_hex(
+        "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000098aa",
+    )));
+    pub const DECAF_FACTOR: Self = Self(ResidueType::new(&U448::from_be_hex(
+        "22d962fbeb24f7683bf68d722fa26aa0a1f1a7b8a5b8d54b64a2d780968c14ba839a66f4fd6eded260337bf6aa20ce529642ef0f45572736",
+    )));
+    pub const EDWARDS_D: Self = Self(ResidueType::new(&U448::from_be_hex(
+        "fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffff6756",
+    )));
     pub const J: Self = Self(ResidueType::new(&U448::from_u64(156326)));
-    pub const MINUS_ONE: Self = Self(ResidueType::new(&U448::from_be_hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffe")));
-    pub const NEG_EDWARDS_D: Self = Self(ResidueType::new(&U448::from_be_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000098a9")));
-    pub const NEG_FOUR_TIMES_TWISTED_D: Self = Self(ResidueType::new(&U448::from_be_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000262a8")));
+    pub const MINUS_ONE: Self = Self(ResidueType::new(&U448::from_be_hex(
+        "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
+    )));
+    pub const NEG_EDWARDS_D: Self = Self(ResidueType::new(&U448::from_be_hex(
+        "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000098a9",
+    )));
+    pub const NEG_FOUR_TIMES_TWISTED_D: Self = Self(ResidueType::new(&U448::from_be_hex(
+        "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000262a8",
+    )));
     pub const ONE: Self = Self(ResidueType::new(&U448::ONE));
-    pub const TWISTED_D: Self = Self(ResidueType::new(&U448::from_be_hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffff6755")));
-    pub const TWO_TIMES_TWISTED_D: Self = Self(ResidueType::new(&U448::from_be_hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffffffffffffffffffffffffffffffffffffffffffffffffeceab")));
-    pub const Z: Self = Self(ResidueType::new(&U448::from_be_hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffe")));
+    pub const TWISTED_D: Self = Self(ResidueType::new(&U448::from_be_hex(
+        "fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffff6755",
+    )));
+    pub const TWO_TIMES_TWISTED_D: Self = Self(ResidueType::new(&U448::from_be_hex(
+        "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffffffffffffffffffffffffffffffffffffffffffffffffeceab",
+    )));
+    pub const Z: Self = Self(ResidueType::new(&U448::from_be_hex(
+        "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
+    )));
     pub const ZERO: Self = Self(ResidueType::new(&U448::ZERO));
 
     pub fn is_negative(&self) -> Choice {
@@ -227,12 +247,16 @@ impl FieldElement {
     }
 
     pub fn is_square(&self) -> Choice {
-        const IS_SQUARE_EXP: U448 = U448::from_le_hex("ffffffffffffffffffffffffffffffffffffffffffffffffffffff7fffffffffffffffffffffffffffffffffffffffffffffffffffffff7f");
+        const IS_SQUARE_EXP: U448 = U448::from_le_hex(
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffff7fffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+        );
         self.0.pow(&IS_SQUARE_EXP).ct_eq(&FieldElement::ONE.0)
     }
 
     pub fn sqrt(&self) -> FieldElement {
-        const SQRT_EXP: U448 = U448::from_be_hex("3fffffffffffffffffffffffffffffffffffffffffffffffffffffffc0000000000000000000000000000000000000000000000000000000");
+        const SQRT_EXP: U448 = U448::from_be_hex(
+            "3fffffffffffffffffffffffffffffffffffffffffffffffffffffffc0000000000000000000000000000000000000000000000000000000",
+        );
         Self(self.0.pow(&SQRT_EXP))
     }
 
@@ -305,7 +329,9 @@ impl FieldElement {
     /// if the input is non-square, the function returns a result with
     /// a defined relationship to the inputs.
     pub(crate) fn sqrt_ratio_i(u: &FieldElement, v: &FieldElement) -> (FieldElement, Choice) {
-        const P_MINUS_THREE_DIV_4: U448 = U448::from_be_hex("3fffffffffffffffffffffffffffffffffffffffffffffffffffffffbfffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        const P_MINUS_THREE_DIV_4: U448 = U448::from_be_hex(
+            "3fffffffffffffffffffffffffffffffffffffffffffffffffffffffbfffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        );
         let u = u.0;
         let v = v.0;
 
@@ -462,7 +488,9 @@ mod tests {
 
     #[test]
     fn invert_is_correct() {
-        const INV_EXP: U448 = U448::from_be_hex("fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffd");
+        const INV_EXP: U448 = U448::from_be_hex(
+            "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffffffffffffffffffffffffffffffffffffffffffffffffffffd",
+        );
 
         // inv(0) == 0 by convention.
         assert_eq!(FieldElement::ZERO.invert(), FieldElement::ZERO);

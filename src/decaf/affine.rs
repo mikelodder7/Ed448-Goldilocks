@@ -1,15 +1,15 @@
 use crate::curve::twedwards::affine::AffinePoint as InnerAffinePoint;
 use crate::field::FieldElement;
 use crate::{
-    decaf::points::DecafPointRepr, CompressedDecaf, Decaf448FieldBytes, DecafPoint, Scalar,
+    CompressedDecaf, Decaf448FieldBytes, DecafPoint, Scalar, decaf::points::DecafPointRepr,
 };
 use elliptic_curve::{
+    Error,
     common::Generate,
     ctutils::{CtEq, CtSelect},
     group::{Curve, CurveAffine, GroupEncoding},
     ops::MulVartime,
     point::NonIdentity,
-    Error,
 };
 use rand_core::TryCryptoRng;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};

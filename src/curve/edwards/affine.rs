@@ -2,13 +2,13 @@ use crate::curve::edwards::EdwardsPoint;
 use crate::field::FieldElement;
 use crate::*;
 use elliptic_curve::{
-    array::{typenum::U57, Array as GenericArray},
+    Error,
+    array::{Array as GenericArray, typenum::U57},
     common::Generate,
     ctutils::{CtEq, CtSelect},
     group::{CurveAffine, GroupEncoding},
     ops::MulVartime,
     point::NonIdentity,
-    Error,
 };
 use rand_core::TryCryptoRng;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};

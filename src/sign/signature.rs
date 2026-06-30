@@ -1,6 +1,6 @@
 use crate::{
-    CompressedEdwardsY, EdwardsPoint, Scalar, ScalarBytes, SigningError, SECRET_KEY_LENGTH,
-    SIGNATURE_LENGTH,
+    CompressedEdwardsY, EdwardsPoint, SECRET_KEY_LENGTH, SIGNATURE_LENGTH, Scalar, ScalarBytes,
+    SigningError,
 };
 use elliptic_curve::Group;
 

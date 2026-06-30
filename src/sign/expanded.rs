@@ -1,12 +1,12 @@
-use crate::sign::{InnerSignature, HASH_HEAD};
+use crate::sign::{HASH_HEAD, InnerSignature};
 use crate::{
-    EdwardsPoint, Scalar, ScalarBytes, SecretKey, SigningError, VerifyingKey, WideScalarBytes,
-    SECRET_KEY_LENGTH,
+    EdwardsPoint, SECRET_KEY_LENGTH, Scalar, ScalarBytes, SecretKey, SigningError, VerifyingKey,
+    WideScalarBytes,
 };
 use shake::digest::ExtendableOutputReset;
 use shake::{
-    digest::{ExtendableOutput, Update, XofReader},
     Shake256,
+    digest::{ExtendableOutput, Update, XofReader},
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
 

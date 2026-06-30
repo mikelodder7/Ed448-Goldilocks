@@ -84,16 +84,16 @@ pub use curve::{
     AffinePoint, CompressedEdwardsY, EdwardsPoint, MontgomeryPoint, ProjectiveMontgomeryPoint,
 };
 pub use decaf::{AffinePoint as DecafAffinePoint, CompressedDecaf, DecafPoint};
-pub use field::{Scalar, ScalarBytes, WideScalarBytes, MODULUS_LIMBS, ORDER, WIDE_ORDER};
+pub use field::{MODULUS_LIMBS, ORDER, Scalar, ScalarBytes, WIDE_ORDER, WideScalarBytes};
 pub use ristretto::{CompressedRistretto, RistrettoPoint};
 #[cfg(feature = "signing")]
 pub use sign::*;
 
 use elliptic_curve::{
+    Curve, PrimeCurve,
     array::typenum::U57,
     bigint::{ByteOrder, Odd, U448},
     point::PointCompression,
-    Curve, PrimeCurve,
 };
 
 /// Edwards448 curve.

@@ -4,16 +4,16 @@
 use crate::curve::edwards::extended::PointBytes;
 use crate::sign::expanded::ExpandedSecretKey;
 use crate::{
-    Context, Scalar, ScalarBytes, Signature, VerifyingKey, PUBLIC_KEY_LENGTH, SECRET_KEY_LENGTH,
+    Context, PUBLIC_KEY_LENGTH, SECRET_KEY_LENGTH, Scalar, ScalarBytes, Signature, VerifyingKey,
 };
 use core::fmt::{self, Debug, Formatter};
 use crypto_signature::Error;
 use sha3::{
-    digest::{
-        common::BlockSizeUser, consts::U64, typenum::IsEqual, ExtendableOutput, FixedOutput,
-        FixedOutputReset, HashMarker, Update,
-    },
     Digest,
+    digest::{
+        ExtendableOutput, FixedOutput, FixedOutputReset, HashMarker, Update, common::BlockSizeUser,
+        consts::U64, typenum::IsEqual,
+    },
 };
 use shake::digest::XofReader;
 use subtle::{Choice, ConstantTimeEq};

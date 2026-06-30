@@ -7,16 +7,16 @@ use crate::*;
 use alloc::string::{String, ToString};
 
 use elliptic_curve::{
+    Error, Group,
     array::{
-        typenum::{U28, U56, U84},
         Array as GenericArray,
+        typenum::{U28, U56, U84},
     },
     common::Generate,
     ctutils::{CtEq, CtSelect},
-    group::{cofactor::CofactorGroup, prime::PrimeGroup, Curve, GroupEncoding},
+    group::{Curve, GroupEncoding, cofactor::CofactorGroup, prime::PrimeGroup},
     ops::{LinearCombination, MulByGeneratorVartime, Reduce},
     point::NonIdentity,
-    Error, Group,
 };
 use hash2curve::{ExpandMsg, Expander};
 
