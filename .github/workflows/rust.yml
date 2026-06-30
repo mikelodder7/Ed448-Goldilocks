@@ -9,7 +9,7 @@ on:
       - LICENSE-MIT
       - rustfmt.toml
   push:
-    branches: [ master ]
+    branches: [ main ]
     paths-ignore:
       - README.md
       - SECURITY.md
