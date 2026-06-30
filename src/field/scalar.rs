@@ -925,8 +925,8 @@ impl Scalar {
     ///
     /// `len_in_bytes = 84`
     ///
-    /// [`ExpandMsgXmd`]: crate::hash2curve::ExpandMsgXmd
-    /// [`ExpandMsgXof`]: crate::hash2curve::ExpandMsgXof
+    /// [`ExpandMsgXmd`]: hash2curve::ExpandMsgXmd
+    /// [`ExpandMsgXof`]: hash2curve::ExpandMsgXof
     pub fn hash<X>(msg: &[u8], dst: &[u8]) -> Self
     where
         X: ExpandMsg<U28>,
