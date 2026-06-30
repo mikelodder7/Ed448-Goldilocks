@@ -7,6 +7,9 @@ ed448-goldilocks-plus
 [![Crate][crate-image]][crate-link]
 [![Docs][docs-image]][docs-link]
 ![BSD-3 Licensed][license-image]
+[![Downloads][downloads-image]][crate-link]
+![build](https://github.com/mikelodder7/Ed448-Goldilocks/actions/workflows/rust.yml/badge.svg)
+![MSRV][msrv-image]
 
 THIS CODE HAS NOT BEEN AUDITED OR REVIEWED. USE AT YOUR OWN RISK.
 
@@ -89,3 +92,5 @@ conditions.
 [docs-image]: https://docs.rs/ed448-goldilocks-plus/badge.svg
 [docs-link]: https://docs.rs/ed448-goldilocks-plus/
 [license-image]: https://img.shields.io/badge/License-BSD%203--Clause-blue.svg
+[downloads-image]: https://img.shields.io/crates/d/ed448-goldilocks-plus.svg
+[msrv-image]: https://img.shields.io/badge/rustc-1.85+-blue.svg
