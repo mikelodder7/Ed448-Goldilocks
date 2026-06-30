@@ -54,7 +54,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
-      - run: cargo install cargo-careful
+      - uses: cargo-bins/cargo-binstall@v1.20.1
+      - run: cargo binstall -y cargo-careful
       - run: cargo careful test
         
   clippy:
@@ -91,7 +92,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
-      - run: cargo install cargo-udeps
+      - uses: cargo-bins/cargo-binstall@v1.20.1
+      - run: cargo binstall -y cargo-udeps
       - run: cargo udeps --all-targets --all-features
 
   outdated:
@@ -99,7 +101,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
-      - run: cargo install cargo-outdated
+      - uses: cargo-bins/cargo-binstall@v1.20.1
+      - run: cargo binstall -y cargo-outdated
       - run: cargo outdated --root-deps-only --exit-code 1
 
   pants:
@@ -107,5 +110,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
-      - run: cargo install cargo-pants
+      - uses: cargo-bins/cargo-binstall@v1.20.1
+      - run: cargo binstall -y cargo-pants
       - run: cargo pants --loud --dev
