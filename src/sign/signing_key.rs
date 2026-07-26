@@ -350,12 +350,13 @@ impl TryFrom<pkcs8::PrivateKeyInfoRef<'_>> for KeypairBytes {
         if value.algorithm.oid != super::ALGORITHM_OID {
             return Err(pkcs8::KeyError::Invalid.into());
         }
-        let private_key = value.private_key.as_bytes();
-        if private_key.len() != SECRET_KEY_LENGTH {
-            return Err(pkcs8::KeyError::Invalid.into());
-        }
-        let mut secret_key = [0u8; SECRET_KEY_LENGTH];
-        secret_key.copy_from_slice(private_key);
+        // RFC 8410 §7: privateKey OCTET STRING wraps CurvePrivateKey OCTET STRING.
+        let secret_key: [u8; SECRET_KEY_LENGTH] = value
+            .private_key
+            .as_bytes()
+            .strip_prefix(&[0x04, SECRET_KEY_LENGTH as u8])
+            .and_then(|s| s.try_into().ok())
+            .ok_or(pkcs8::KeyError::Invalid)?;
         let verifying_key = if let Some(public_key) = value.public_key {
             let public_key = public_key.as_bytes().ok_or(pkcs8::KeyError::Invalid)?;
             if public_key.len() != PUBLIC_KEY_LENGTH {
@@ -560,4 +561,51 @@ fn serialization() {
     let signing_key3: SigningKey =
         serde_json::from_str(&string).expect("deserialize signing key json");
     assert_eq!(signing_key, signing_key3);
+}
+
+#[cfg(all(any(feature = "alloc", feature = "std"), feature = "pkcs8"))]
+#[test]
+fn pkcs8_keypair_round_trip() {
+    use pkcs8::EncodePrivateKey;
+    use rand_chacha::ChaCha8Rng;
+    use rand_core::SeedableRng;
+
+    let mut rng = ChaCha8Rng::from_seed([7u8; 32]);
+    let signing_key = SigningKey::generate(&mut rng);
+    let keypair = KeypairBytes::from(&signing_key);
+
+    let doc = keypair.to_pkcs8_der().unwrap();
+    let pki = pkcs8::PrivateKeyInfoRef::try_from(doc.as_bytes()).unwrap();
+
+    let keypair2 = KeypairBytes::try_from(pki).unwrap();
+    assert_eq!(keypair, keypair2);
+
+    let signing_key2 = SigningKey::try_from(keypair2).unwrap();
+    assert_eq!(signing_key, signing_key2);
+}
+
+#[cfg(all(any(feature = "alloc", feature = "std"), feature = "pkcs8"))]
+#[test]
+fn pkcs8_decode_openssl_key() {
+    // Ed448 OneAsymmetricKey (RFC 5958 / RFC 8410), version 0, no public key.
+    // Generated with OpenSSL: openssl genpkey -algorithm ed448 -outform DER
+    let der = hex_literal::hex!(
+        "3047020100300506032b6571043b0439"
+        "0dcc06f6f2205b107292133fb3b98049"
+        "7eca62f0f61b8b0095b2a0b3f4a9e888"
+        "2dd9e7b8d18eba3cc8b32af2bbeceff5"
+        "f1b1eb8fef3eb1c3d2"
+    );
+    let expected_seed = hex_literal::hex!(
+        "0dcc06f6f2205b107292133fb3b98049"
+        "7eca62f0f61b8b0095b2a0b3f4a9e888"
+        "2dd9e7b8d18eba3cc8b32af2bbeceff5"
+        "f1b1eb8fef3eb1c3d2"
+    );
+
+    let pki = pkcs8::PrivateKeyInfoRef::try_from(&der[..]).unwrap();
+    let keypair = KeypairBytes::try_from(pki).unwrap();
+
+    assert_eq!(keypair.secret_key.as_ref(), &expected_seed[..]);
+    assert!(keypair.verifying_key.is_none());
 }
