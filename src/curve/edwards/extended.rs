@@ -27,17 +27,17 @@ use hash2curve::{ExpandMsg, ExpandMsgXof, Expander};
 use rand_core::{TryCryptoRng, TryRng};
 use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, CtOption};
 
-/// The default hash to curve domain separation tag
+/// The default hash-to-curve domain-separation tag.
 pub const DEFAULT_HASH_TO_CURVE_SUITE: &[u8] = b"edwards448_XOF:SHAKE256_ELL2_RO_";
-/// The default encode to curve domain separation tag
+/// The default encode-to-curve domain-separation tag.
 pub const DEFAULT_ENCODE_TO_CURVE_SUITE: &[u8] = b"edwards448_XOF:SHAKE256_ELL2_NU_";
 
 /// The compressed internal representation of a point on the Twisted Edwards Curve
 pub type PointBytes = [u8; 57];
 
-/// Represents a point on the Compressed Twisted Edwards Curve
-/// in little endian format where the most significant bit is the sign bit
-/// and the remaining 448 bits represent the y-coordinate
+/// Represents a point on the compressed twisted Edwards curve
+/// in little-endian format, where the most significant bit is the sign bit
+/// and the remaining 448 bits represent the y-coordinate.
 #[derive(Copy, Clone, Debug)]
 pub struct CompressedEdwardsY(pub PointBytes);
 
@@ -276,11 +276,12 @@ impl CompressedEdwardsY {
     }
 }
 
-/// Represent points on the (untwisted) edwards curve using Extended Homogenous Projective Co-ordinates
+/// Represents points on the (untwisted) Edwards curve using extended homogeneous projective coordinates.
 /// (x, y) -> (X/Z, Y/Z, Z, T)
 /// a = 1, d = -39081
-/// XXX: Make this more descriptive
-/// Should this be renamed to EdwardsPoint so that we are consistent with Dalek crypto? Necessary as ExtendedPoint is not regular lingo?
+/// XXX: Make this more descriptive.
+/// Should this be renamed to `EdwardsPoint` for consistency with Dalek cryptography?
+/// This may be necessary because `ExtendedPoint` is not standard terminology.
 #[derive(Copy, Clone, Debug)]
 pub struct EdwardsPoint {
     pub(crate) X: FieldElement,
@@ -596,7 +597,7 @@ impl EdwardsPoint {
         MontgomeryPoint(u.to_bytes())
     }
 
-    /// Generic scalar multiplication to compute s*P
+    /// Generic scalar multiplication that computes `s * P`.
     pub fn scalar_mul(&self, scalar: &Scalar) -> Self {
         // Compute floor(s/4)
         let mut scalar_div_four = *scalar;
@@ -610,7 +611,7 @@ impl EdwardsPoint {
 
     /// Returns (scalar mod 4) * P in constant time
     pub(crate) fn scalar_mod_four(&self, scalar: &Scalar) -> Self {
-        // Compute compute (scalar mod 4)
+        // Compute scalar mod 4.
         let s_mod_four = scalar[0] & 3;
 
         // Compute all possible values of (scalar mod 4) * P
@@ -619,10 +620,10 @@ impl EdwardsPoint {
         let two_p = one_p.double();
         let three_p = two_p.add(self);
 
-        // Under the reasonable assumption that `==` is constant time
-        // Then the whole function is constant time.
+        // Under the reasonable assumption that `==` is constant-time,
+        // the whole function is constant-time.
         // This should be cheaper than calling double_and_add or a scalar mul operation
-        // as the number of possibilities are so small.
+        // because the number of possibilities is so small.
         // XXX: This claim has not been tested (although it sounds intuitive to me)
         let mut result = EdwardsPoint::IDENTITY;
         result.conditional_assign(&zero_p, Choice::from((s_mod_four == 0) as u8));
@@ -634,7 +635,8 @@ impl EdwardsPoint {
     }
 
     /// Standard compression; store Y and sign of X
-    // XXX: This needs more docs and is `compress` the conventional function name? I think to_bytes/encode is?
+    // XXX: This needs more documentation. Is `compress` the conventional function name,
+    // or should it be `to_bytes` or `encode`?
     pub fn compress(&self) -> CompressedEdwardsY {
         let affine = self.to_affine();
 
@@ -653,7 +655,7 @@ impl EdwardsPoint {
 
     /// Add two points
     //https://iacr.org/archive/asiacrypt2008/53500329/53500329.pdf (3.1)
-    // These formulas are unified, so for now we can use it for doubling. Will refactor later for speed
+    // These formulas are unified, so for now we can use them for doubling. Refactor later for speed.
     pub fn add(&self, other: &EdwardsPoint) -> Self {
         let aXX = self.X * other.X; // aX1X2
         let dTT = FieldElement::EDWARDS_D * self.T * other.T; // dT1T2
@@ -674,13 +676,13 @@ impl EdwardsPoint {
     }
 
     /// Double this point
-    // XXX: See comment on addition, the formula is unified, so this will do for now
+    // XXX: See the comment on addition. The formula is unified, so this will do for now.
     //https://iacr.org/archive/asiacrypt2008/53500329/53500329.pdf (3.1)
     pub fn double(&self) -> Self {
         self.add(self)
     }
 
-    /// Check if this point is on the curve
+    /// Checks whether this point is on the curve.
     pub fn is_on_curve(&self) -> Choice {
         let XY = self.X * self.Y;
         let ZT = self.Z * self.T;
@@ -707,16 +709,16 @@ impl EdwardsPoint {
         AffinePoint { x, y }
     }
 
-    /// Edwards_Isogeny is derived from the doubling formula
-    /// XXX: There is a duplicate method in the twisted edwards module to compute the dual isogeny
+    /// The Edwards isogeny is derived from the doubling formula.
+    /// XXX: There is a duplicate method in the twisted Edwards module to compute the dual isogeny.
     fn edwards_isogeny(&self, a: FieldElement) -> TwistedExtendedPoint {
         // Projective 2-isogeny. With x = X/Z and y = Y/Z the affine image is
         //   x' = 2xy / (y^2 - a*x^2)
         //   y' = (y^2 + a*x^2) / (2 - y^2 - a*x^2)
         // Clearing the shared Z^2 factor from every numerator/denominator lets us
         // emit a valid projective extended point WITHOUT any field inversion (the
-        // previous version performed three inversions per call). Inversion-free and
-        // value-independent, so constant-time behaviour is unchanged.
+        // previous version performed three inversions per call). The result is inversion-free and
+        // value-independent, so constant-time behavior is unchanged.
         let XX = self.X.square();
         let YY = self.Y.square();
         let ZZ = self.Z.square();
@@ -774,7 +776,7 @@ impl EdwardsPoint {
 
     /// Hash a message to a point on the curve
     ///
-    /// Hash using the default domain separation tag and hash function
+    /// Hash using the default domain-separation tag and hash function.
     pub fn hash_with_defaults(msg: &[u8]) -> Self {
         Self::hash::<ExpandMsgXof<shake::Shake256>>(msg, DEFAULT_HASH_TO_CURVE_SUITE)
     }
@@ -809,7 +811,7 @@ impl EdwardsPoint {
 
     /// Encode a message to a point on the curve
     ///
-    /// Encode using the default domain separation tag and hash function
+    /// Encode using the default domain-separation tag and hash function.
     pub fn encode_with_defaults(msg: &[u8]) -> Self {
         Self::encode::<ExpandMsgXof<shake::Shake256>>(msg, DEFAULT_ENCODE_TO_CURVE_SUITE)
     }
@@ -1160,7 +1162,7 @@ mod tests {
         );
         let old_bp = AffinePoint { x: old_x, y: old_y }.to_edwards();
 
-        // This is the new basepoint, that is in the ed448 paper
+        // This is the new basepoint that appears in the Ed448 paper.
         let new_x = hex_to_field(
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa955555555555555555555555555555555555555555555555555555555",
         );
@@ -1173,7 +1175,7 @@ mod tests {
         assert_eq!(old_bp.double(), new_bp);
 
         // XXX: Unfortunately, the test vectors in libdecaf currently use the old basepoint.
-        // We need to update this. But for now, I use the old basepoint so that I can check against libdecaf
+        // We need to update this, but for now, I use the old basepoint to check against libdecaf.
 
         assert_eq!(GOLDILOCKS_BASE_POINT, old_bp);
 

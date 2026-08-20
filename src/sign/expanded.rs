@@ -48,9 +48,8 @@ impl ExpandedSecretKey {
         let mut scalar_bytes = ScalarBytes::default();
         scalar_bytes.copy_from_slice(&bytes[..SECRET_KEY_LENGTH]);
 
-        // The two least significant bits of the first byte are cleared
-        // All eight most significant bits of the last byte are cleared
-        // with the highest bit of the second byte set.
+        // Clear the two least significant bits of the first byte and all bits of the last byte.
+        // Set the highest bit of the second-to-last byte.
         scalar_bytes[0] &= 0xFC;
         scalar_bytes[56] = 0;
         scalar_bytes[55] |= 0x80;
@@ -88,7 +87,7 @@ impl ExpandedSecretKey {
     ///
     /// This is the "Ed448" mode of RFC 8032 (no pre-hashing),
     /// also known as "PureEdDSA on Curve448". A context string is also
-    /// provided; it MUST have length at most 255 bytes.
+    /// provided; it MUST be at most 255 bytes long.
     pub fn sign_ctx(&self, ctx: &[u8], m: &[u8]) -> Result<InnerSignature, SigningError> {
         self.sign_inner(0, ctx, m)
     }
@@ -98,9 +97,9 @@ impl ExpandedSecretKey {
     /// This is the "Ed448ph" mode of RFC 8032 (message is pre-hashed),
     /// also known as "HashEdDSA on Curve448". The hashed message `hm`
     /// is provided (presumably, that hash value was obtained with
-    /// SHAKE256 and an output of 64 bytes; the caller does the hashing
-    /// itself). A context string is also provided; it MUST have length
-    /// at most 255 bytes.
+    /// SHAKE256 and a 64-byte output; the caller does the hashing
+    /// itself). A context string is also provided; it MUST be at most
+    /// 255 bytes long.
     pub fn sign_prehashed(&self, ctx: &[u8], m: &[u8]) -> Result<InnerSignature, SigningError> {
         self.sign_inner(1, ctx, m)
     }

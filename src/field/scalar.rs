@@ -745,17 +745,19 @@ impl Scalar {
         self.0.is_zero().into()
     }
 
-    /// Divides a scalar by four without reducing mod p
+    /// Divides a scalar by four without reducing modulo p.
     /// This is used in the 2-isogeny when mapping points from Ed448-Goldilocks
-    /// to Twisted-Goldilocks
+    /// to Twisted-Goldilocks.
     pub(crate) fn div_by_four(&mut self) {
         self.0 >>= 2;
     }
 
     // This method was modified from Curve25519-Dalek codebase. [scalar.rs]
-    // We start with 14 u32s and convert them to 56 u8s.
-    // We then use the code copied from Dalek to convert the 56 u8s to radix-16 and re-center the coefficients to be between [-16,16)
-    // XXX: We can recode the scalar without converting it to bytes, will refactor this method to use this and check which is faster.
+    // We start with 14 `u32` values and convert them to 56 `u8` values.
+    // We then use the code copied from Dalek to convert the 56 `u8` values to radix 16
+    // and recenter the coefficients to be between [-16, 16).
+    // XXX: We can recode the scalar without converting it to bytes. Refactor this method
+    // to use that approach and check which is faster.
     pub(crate) fn to_radix_16(self) -> [i8; 113] {
         let bytes = self.to_bytes();
         let mut output = [0i8; 113];
@@ -776,7 +778,7 @@ impl Scalar {
             output[2 * i] = bot_half(bytes[i]) as i8;
             output[2 * i + 1] = top_half(bytes[i]) as i8;
         }
-        // re-center co-efficients to be between [-8, 8)
+        // Recenter coefficients to be between [-8, 8).
         for i in 0..112 {
             let carry = (output[i] + 8) >> 4;
             output[i] -= carry << 4;
@@ -791,17 +793,17 @@ impl Scalar {
     pub fn bits(&self) -> [bool; 448] {
         let mut bits = [false; 448];
         let mut i = 0;
-        // We have 56 limbs, each 8 bits
-        // First we iterate each limb
+        // We have 56 limbs, each 8 bits.
+        // First, we iterate over each limb.
         for limb in self.to_bytes().iter() {
-            // Then we iterate each bit in the limb
+            // Then, we iterate over each bit in the limb.
             for j in 0..8 {
                 bits[i] = limb & (1 << j) != 0;
                 i += 1;
             }
         }
 
-        // XXX :We are doing LSB first
+        // XXX: We are processing the LSB first.
         bits
     }
 
@@ -817,7 +819,7 @@ impl Scalar {
         output
     }
 
-    /// Invert this scalar
+    /// Inverts this scalar.
     pub fn invert(&self) -> Self {
         Self::conditional_select(
             &self.exp_vartime(&[
@@ -834,8 +836,7 @@ impl Scalar {
         )
     }
 
-    /// Exponentiates `self` by `exp`, where `exp` is a little-endian order integer
-    /// exponent.
+    /// Exponentiates `self` by `exp`, where `exp` is a little-endian integer exponent.
     pub const fn exp_vartime(&self, exp: &[u64]) -> Self {
         let mut res = Self::ONE;
 
@@ -857,7 +858,7 @@ impl Scalar {
         res
     }
 
-    /// Return the square root of this scalar, if it is a quadratic residue.
+    /// Returns the square root of this scalar if it is a quadratic residue.
     pub fn sqrt(&self) -> CtOption<Self> {
         let ss = self.pow([
             0x48de30a4aad6113d,
@@ -871,14 +872,14 @@ impl Scalar {
         CtOption::new(ss, ConstantTimeEq::ct_eq(&ss.square(), self))
     }
 
-    /// Halves a Scalar modulo the prime
+    /// Halves a `Scalar` modulo the prime.
     pub const fn halve(&self) -> Self {
         Self(self.0.shr_vartime(1))
     }
 
     /// Attempt to construct a `Scalar` from a canonical byte representation.
     ///
-    /// # Return
+    /// # Returns
     ///
     /// - `Some(s)`, where `s` is the `Scalar` corresponding to `bytes`,
     ///   if `bytes` is a canonical byte representation;
@@ -889,7 +890,7 @@ impl Scalar {
         let bytes: [u8; 56] = core::array::from_fn(|i| bytes[i]);
         let candidate = Scalar::from_bytes(&bytes);
 
-        // underflow means candidate < ORDER, thus canonical
+        // Underflow means candidate < ORDER and is therefore canonical.
         let (_, underflow) = candidate.0.borrowing_sub(&ORDER, Limb::ZERO);
         let underflow = Choice::from((underflow.0 >> (Limb::BITS - 1)) as u8);
         CtOption::new(candidate, underflow & is_valid)
@@ -906,7 +907,7 @@ impl Scalar {
     /// Construct a `Scalar` by reducing a 912-bit little-endian integer
     /// modulo the group order ℓ.
     pub fn from_bytes_mod_order_wide(input: &WideScalarBytes) -> Scalar {
-        // top multiplier = 2^896 mod ℓ
+        // Top multiplier = 2^896 mod ℓ.
         const TOP_MULTIPLIER: U448 = U448::from_be_hex(
             "3402a939f823b7292052bcb7e4d070af1a9cc14ba3c47c44ae17cf725ee4d8380d66de2388ea18597af32c4bc1b195d9e3539257049b9b60",
         );
@@ -923,17 +924,17 @@ impl Scalar {
         Self(bottom.add_mod(&top, &ORDER_NONZERO))
     }
 
-    /// Construct a Scalar by reducing a 448-bit little-endian integer modulo the group order ℓ
+    /// Construct a `Scalar` by reducing a 448-bit little-endian integer modulo the group order ℓ.
     pub fn from_bytes_mod_order(input: &ScalarBytes) -> Scalar {
         let value = U448::from_le_slice(&input[..56]);
         Self(value.rem_vartime(&ORDER_NONZERO))
     }
 
-    /// Return a `Scalar` chosen uniformly at random using a user-provided RNG.
+    /// Returns a `Scalar` chosen uniformly at random using a user-provided RNG.
     ///
     /// # Inputs
     ///
-    /// * `rng`: any RNG which implements the `RngCore + CryptoRng` interface.
+    /// * `rng`: any RNG that implements the `RngCore + CryptoRng` interface.
     ///
     /// # Returns
     ///
@@ -944,12 +945,13 @@ impl Scalar {
         Scalar::from_bytes_mod_order_wide(&scalar_bytes)
     }
 
-    /// Computes the hash to field routine according to Section 5
+    /// Computes the hash-to-field routine according to Section 5 of
     /// <https://datatracker.ietf.org/doc/rfc9380/>
     /// and returns a scalar.
     ///
     /// # Errors
-    /// See implementors of [`ExpandMsg`] for errors:
+    ///
+    /// See implementations of [`ExpandMsg`] for possible errors:
     /// - [`ExpandMsgXmd`]
     /// - [`ExpandMsgXof`]
     ///

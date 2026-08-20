@@ -7,11 +7,11 @@ use crate::curve::twedwards::{
 use crate::field::FieldElement;
 use subtle::{Choice, ConstantTimeEq};
 
-/// This is the representation that we will do most of the group operations on.
-// In affine (x,y) is the extensible point (X, Y, Z, T1, T2)
-// Where x = X/Z , y = Y/Z , T1 * T2 = T
+/// This is the representation on which most group operations are performed.
+// In affine coordinates, (x, y) is represented by the extensible point (X, Y, Z, T1, T2),
+// where x = X/Z, y = Y/Z, and T1 * T2 = T.
 // XXX: I think we have too many point representations,
-// But let's not remove any yet
+// but let's not remove any yet.
 pub struct ExtensiblePoint {
     pub(crate) X: FieldElement,
     pub(crate) Y: FieldElement,
@@ -47,8 +47,8 @@ impl ExtensiblePoint {
         T2: FieldElement::ONE,
     };
 
-    /// Doubles a point
-    /// (3.3) https://iacr.org/archive/asiacrypt2008/53500329/53500329.pdf
+    /// Doubles a point.
+    /// See [Section 3.3](https://iacr.org/archive/asiacrypt2008/53500329/53500329.pdf).
     pub fn double(&self) -> ExtensiblePoint {
         let A = self.X.square();
         let B = self.Y.square();
@@ -68,14 +68,14 @@ impl ExtensiblePoint {
         }
     }
 
-    /// Adds two extensible points together by converting the other point to a ExtendedPoint
+    /// Adds two extensible points by converting the other point to an `ExtendedPoint`.
     pub fn add_extensible(&self, other: &ExtensiblePoint) -> ExtensiblePoint {
         self.add_extended(&other.to_extended())
     }
 
-    /// Adds an extensible point to an extended point
-    /// Returns an extensible point
-    /// (3.1) https://iacr.org/archive/asiacrypt2008/53500329/53500329.pdf
+    /// Adds an extensible point to an extended point.
+    /// Returns an extensible point.
+    /// See [Section 3.1](https://iacr.org/archive/asiacrypt2008/53500329/53500329.pdf).
     pub fn add_extended(&self, other: &ExtendedPoint) -> ExtensiblePoint {
         let A = self.X * other.X;
         let B = self.Y * other.Y;
@@ -94,9 +94,9 @@ impl ExtensiblePoint {
         }
     }
 
-    /// Subtracts an extensible point from an extended point
-    /// Returns an extensible point
-    /// This is a direct modification of the addition formula to the negation of `other`
+    /// Subtracts an extensible point from an extended point.
+    /// Returns an extensible point.
+    /// This directly modifies the addition formula to add the negation of `other`.
     pub fn sub_extended(&self, other: &ExtendedPoint) -> ExtensiblePoint {
         let A = self.X * other.X;
         let B = self.Y * other.Y;
@@ -115,8 +115,8 @@ impl ExtensiblePoint {
         }
     }
 
-    /// Adds an extensible point to an AffineNiels point
-    /// Returns an Extensible point
+    /// Adds an extensible point to an `AffineNielsPoint`.
+    /// Returns an extensible point.
     pub fn add_affine_niels(&self, other: AffineNielsPoint) -> ExtensiblePoint {
         let A = other.y_minus_x * (self.Y - self.X);
         let B = other.y_plus_x * (self.X + self.Y);
@@ -134,13 +134,13 @@ impl ExtensiblePoint {
         }
     }
 
-    /// Adds an extensible point to a ProjectiveNiels point
-    /// Returns an extensible point
-    /// (3.1)[Last set of formulas] https://iacr.org/archive/asiacrypt2008/53500329/53500329.pdf
-    /// This differs from the formula above by a factor of 2. Saving 1 Double
-    /// Cost 8M
+    /// Adds an extensible point to a `ProjectiveNielsPoint`.
+    /// Returns an extensible point.
+    /// See the last set of formulas in [Section 3.1](https://iacr.org/archive/asiacrypt2008/53500329/53500329.pdf).
+    /// This differs from the formula above by a factor of 2, saving one doubling.
+    /// The cost is 8M.
     pub fn add_projective_niels(&self, other: &ProjectiveNielsPoint) -> ExtensiblePoint {
-        // This is the only step which makes it different than adding an AffineNielsPoint
+        // This is the only step that differs from adding an `AffineNielsPoint`.
         let Z = self.Z * other.Z;
 
         let A = (self.Y - self.X) * other.Y_minus_X;
@@ -159,7 +159,7 @@ impl ExtensiblePoint {
         }
     }
 
-    /// Converts an extensible point to an extended point
+    /// Converts an extensible point to an extended point.
     pub fn to_extended(&self) -> ExtendedPoint {
         ExtendedPoint {
             X: self.X,
@@ -169,7 +169,7 @@ impl ExtensiblePoint {
         }
     }
 
-    /// Converts an Extensible point to a ProjectiveNiels Point
+    /// Converts an extensible point to a `ProjectiveNielsPoint`.
     pub fn to_projective_niels(&self) -> ProjectiveNielsPoint {
         ProjectiveNielsPoint {
             Y_plus_X: self.X + self.Y,

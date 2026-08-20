@@ -1,11 +1,11 @@
 //! Ed448 digital signatures implementation
 //!
 //! # Example
-//! Creating an ed448 signature.
+//! Creating an Ed448 signature.
 //!
 //! Generate a [`SigningKey`], which includes both the public and secret halves, using
-//! a cryptographically secure pseudorandom number generator (CSPRNG). Next sign a message
-//! to produce a [`Signature`]. Then verify the signature using the corresponding
+//! a cryptographically secure pseudorandom number generator (CSPRNG). Next, sign a message
+//! to produce a [`Signature`], then verify the signature using the corresponding
 //! [`VerifyingKey`].
 //!
 //! ```
@@ -20,21 +20,22 @@
 //! assert!(verifying_key.verify_raw(&signature, b"Hello, world!").is_ok());
 //! ```
 //!
-//! This crate also supports using context specific strings when creating and verifying signatures.
-//! In addition, it supports the PKCS#8 standard for encoding and decoding keys, or raw byte forms
-//! using `to_bytes` and `from_bytes` methods. These store the [`SecretKey`] which is the prehash
-//! seed of the [`SigningKey`].
+//! This crate also supports using context-specific strings when creating and verifying signatures.
+//! In addition, it supports the PKCS#8 standard for encoding and decoding keys, as well as raw
+//! byte forms through the `to_bytes` and `from_bytes` methods. These store the [`SecretKey`],
+//! which is the prehash seed of the [`SigningKey`].
 //!
 //! # PKCS#8 Key Encoding
 //! PKCS#8 is a private key format with support for multiple algorithms. It can be encoded as
 //! binary (DER) or text (PEM). Use the `pkcs8` feature to enable this option.
 //!
 //! # Using Serde
-//! This crate supports serialization and deserialization using the `serde` if the preference
-//! is to encode the keys as other formats. Use the `serde` feature to enable this option.
+//! This crate supports serialization and deserialization through `serde` when keys need to be
+//! encoded in other formats. Use the `serde` feature to enable this option.
 //!
 //! # Using Signature
-//! This crate supports signing using the traits defined in the `signature` crate like
+//! This crate supports signing using traits defined in the `signature` crate, such as:
+//!
 //! - [`Signer`]
 //! - [`DigestSigner`]
 //! - [`PrehashSigner`]
@@ -44,16 +45,16 @@
 //! The crate is re-exported as `crypto-signature` for use in other crates.
 //!
 //! # Other Features
-//! Signing and verifying also supports custom digest and prehash algorithms.
-//! Any algorith that implements [`PreHash`] and [`Digest`] can be used.
-//! However, there are two implementations provided in this crate:
+//! Signing and verification also support custom digest and prehash algorithms.
+//! Any algorithm that implements [`PreHash`] and [`Digest`] can be used.
+//! This crate provides two implementations:
 //!
-//! - [`PreHasherXmd`] which supports any implementation of a fixed length digest like SHA3-512.
-//! - [`PreHasherXof`] which supports any implementation of expandable output functions like SHAKE-256.
+//! - [`PreHasherXmd`], which supports fixed-length digest implementations such as SHA3-512.
+//! - [`PreHasherXof`], which supports extendable-output functions such as SHAKE-256.
 //!
 //! # Example
-//! This is an example of using the SHAKE-256 algorithm to sign and verify a message
-//! which is the normal default anyway but performed explicitly.
+//! This example explicitly uses the SHAKE-256 algorithm, which is also the default, to sign and
+//! verify a message.
 //! ```
 //! use ed448_goldilocks_plus::*;
 //! use rand_core::SeedableRng;

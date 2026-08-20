@@ -19,7 +19,7 @@ pub fn variable_base(point: &ExtendedPoint, s: &Scalar) -> ExtendedPoint {
         result = result.double();
         result = result.double();
 
-        // The mask is the top bit, will be 1 for negative numbers, 0 for positive numbers
+        // The mask is the top bit: 1 for negative numbers and 0 for positive numbers.
         let mask = scalar[i] >> 7;
         let sign = mask & 0x1;
         // Use the mask to get the absolute value of scalar
@@ -54,7 +54,7 @@ mod test {
         let got2 = double_and_add(&twisted_point, &scalar);
         assert_eq!(got, got2);
 
-        // Lets see if this is conserved over the isogenies
+        // Let's see whether this is conserved over the isogenies.
         let edwards_point = twisted_point.to_untwisted();
         let got_untwisted_point = edwards_point.scalar_mul(&scalar);
         let expected_untwisted_point = got.to_untwisted();

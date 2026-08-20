@@ -25,13 +25,13 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 /// The private key is 57 octets (448 bits, 56 bytes) long.
 pub type SecretKey = ScalarBytes;
 
-/// Signing hash trait for Ed448ph
+/// Signing hash trait for Ed448ph.
 pub trait PreHash {
-    /// Fill the given `out` buffer with the hash bytes
+    /// Fill the given `out` buffer with the hash bytes.
     fn fill_bytes(&mut self, out: &mut [u8]);
 }
 
-/// Signing pre-hasher for Ed448ph with a fixed output size
+/// Signing pre-hasher for Ed448ph with a fixed output size.
 #[derive(Debug)]
 pub struct PreHasherXmd<HashT>
 where
@@ -56,7 +56,7 @@ where
     HashT: BlockSizeUser + Default + FixedOutput + FixedOutputReset + Update + HashMarker,
     HashT::OutputSize: IsEqual<U64>,
 {
-    /// Create a new [`PreHasherXmd`] from a `HashT`
+    /// Create a new [`PreHasherXmd`] from a `HashT`.
     pub fn new(hasher: HashT) -> Self {
         Self { hasher }
     }
@@ -72,7 +72,7 @@ where
     }
 }
 
-/// Signing pre-hasher for Ed448ph with a xof output
+/// Signing pre-hasher for Ed448ph with an XOF output.
 pub struct PreHasherXof<HashT>
 where
     HashT: Default + ExtendableOutput + Update,
@@ -112,7 +112,7 @@ impl<HashT> PreHasherXof<HashT>
 where
     HashT: Default + ExtendableOutput + Update,
 {
-    /// Create a new [`PreHasherXof`] from a `HashT`
+    /// Create a new [`PreHasherXof`] from a `HashT`.
     pub fn new(hasher: HashT) -> Self {
         Self {
             reader: hasher.finalize_xof(),
@@ -120,7 +120,7 @@ where
     }
 }
 
-/// Signing key for Ed448
+/// Signing key for Ed448.
 #[derive(Clone)]
 pub struct SigningKey {
     pub(crate) secret: ExpandedSecretKey,
@@ -304,12 +304,12 @@ impl pkcs8::spki::DynSignatureAlgorithmIdentifier for SigningKey {
 }
 
 #[cfg(feature = "pkcs8")]
-/// Keypair bytes for Ed448
+/// Keypair bytes for Ed448.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct KeypairBytes {
-    /// The secret key bytes
+    /// The secret key bytes.
     pub secret_key: PointBytes,
-    /// The public key bytes if included
+    /// The public key bytes, if included.
     pub verifying_key: Option<PointBytes>,
 }
 
@@ -494,7 +494,7 @@ impl SigningKey {
     /// Return the clamped [`Scalar`] for this [`SigningKey`].
     ///
     /// This is the scalar that is actually used for signing.
-    /// Be warned, this is secret material that should be handled with care.
+    /// Warning: this is secret material that should be handled with care.
     pub fn to_scalar(&self) -> Scalar {
         self.secret.scalar
     }
@@ -565,7 +565,7 @@ fn serialization() {
 
 #[cfg(all(any(feature = "alloc", feature = "std"), feature = "pkcs8"))]
 #[test]
-fn pkcs8_keypair_round_trip() {
+fn pkcs8_keypair_round_trip() -> Result<(), pkcs8::Error> {
     use pkcs8::EncodePrivateKey;
     use rand_chacha::ChaCha8Rng;
     use rand_core::SeedableRng;
@@ -574,19 +574,21 @@ fn pkcs8_keypair_round_trip() {
     let signing_key = SigningKey::generate(&mut rng);
     let keypair = KeypairBytes::from(&signing_key);
 
-    let doc = keypair.to_pkcs8_der().unwrap();
-    let pki = pkcs8::PrivateKeyInfoRef::try_from(doc.as_bytes()).unwrap();
+    let doc = keypair.to_pkcs8_der()?;
+    let pki = pkcs8::PrivateKeyInfoRef::try_from(doc.as_bytes())?;
 
-    let keypair2 = KeypairBytes::try_from(pki).unwrap();
+    let keypair2 = KeypairBytes::try_from(pki)?;
     assert_eq!(keypair, keypair2);
 
-    let signing_key2 = SigningKey::try_from(keypair2).unwrap();
+    let signing_key2 = SigningKey::try_from(keypair2)?;
     assert_eq!(signing_key, signing_key2);
+
+    Ok(())
 }
 
 #[cfg(all(any(feature = "alloc", feature = "std"), feature = "pkcs8"))]
 #[test]
-fn pkcs8_decode_openssl_key() {
+fn pkcs8_decode_openssl_key() -> Result<(), pkcs8::Error> {
     // Ed448 OneAsymmetricKey (RFC 5958 / RFC 8410), version 0, no public key.
     // Generated with OpenSSL: openssl genpkey -algorithm ed448 -outform DER
     let der = hex_literal::hex!(
@@ -603,9 +605,11 @@ fn pkcs8_decode_openssl_key() {
         "f1b1eb8fef3eb1c3d2"
     );
 
-    let pki = pkcs8::PrivateKeyInfoRef::try_from(&der[..]).unwrap();
-    let keypair = KeypairBytes::try_from(pki).unwrap();
+    let pki = pkcs8::PrivateKeyInfoRef::try_from(&der[..])?;
+    let keypair = KeypairBytes::try_from(pki)?;
 
     assert_eq!(keypair.secret_key.as_ref(), &expected_seed[..]);
     assert!(keypair.verifying_key.is_none());
+
+    Ok(())
 }

@@ -98,7 +98,7 @@ where
 }
 
 #[cfg(feature = "pkcs8")]
-/// This type is primarily useful for decoding/encoding SPKI public key files (either DER or PEM)
+/// This type is primarily useful for decoding or encoding SPKI public key files (either DER or PEM).
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct PublicKeyBytes(pub [u8; PUBLIC_KEY_LENGTH]);
 
@@ -205,7 +205,7 @@ impl<'de> serdect::serde::Deserialize<'de> for VerifyingKey {
 }
 
 impl VerifyingKey {
-    /// Convert this verifying key into byte slice
+    /// Convert this verifying key into a byte array.
     pub fn to_bytes(&self) -> PointBytes {
         self.compressed.to_bytes()
     }
@@ -226,7 +226,8 @@ impl VerifyingKey {
         Ok(Self { compressed, point })
     }
 
-    /// Create a context for this verifying key that can be used with [`DigestVerifier`](crypto_signature::DigestVerifier).
+    /// Create a context for this verifying key that can be used with
+    /// [`DigestVerifier`](crypto_signature::DigestVerifier).
     pub fn with_context<'k, 'v>(&'k self, context: &'v [u8]) -> Context<'k, 'v, Self> {
         Context {
             key: self,
@@ -241,8 +242,8 @@ impl VerifyingKey {
 
     /// Verifies a signature on a message.
     ///
-    /// This is the "Ed448" mode of RFC 8032 (no pre-hashing, a
-    /// context is provided). This is equivalent to `verify_ctx()`
+    /// This is the "Ed448" mode of RFC 8032 (no pre-hashing and no
+    /// context). This is equivalent to `verify_ctx()`
     /// with an empty (zero-length) context.
     ///
     /// Note: this function is not constant-time; it assumes that the
@@ -253,9 +254,9 @@ impl VerifyingKey {
 
     /// Verifies a signature on a message (with context).
     ///
-    /// This is the "Ed448" mode of RFC 8032 (no pre-hashing, a
-    /// context is provided). The context string MUST have length at most
-    /// 255 bytes. Return value is `Ok` on a valid signature, `Error`
+    /// This is the "Ed448" mode of RFC 8032 (no pre-hashing; a
+    /// context is provided). The context string MUST be at most
+    /// 255 bytes long. The return value is `Ok` for a valid signature and `Err`
     /// otherwise.
     ///
     /// Note: this function is not constant-time; it assumes that the
@@ -270,9 +271,8 @@ impl VerifyingKey {
     /// also known as "HashEdDSA on Curve448". The hashed message `prehashed_message`
     /// is provided (presumably, that hash value was obtained with
     /// SHAKE256 and a 64-byte output; the caller does the hashing itself).
-    /// A context string `ctx` is
-    /// also provided; it MUST have length at most 255 bytes. Return
-    /// value is `Ok` on a valid signature, `Error` otherwise.
+    /// A context string, `ctx`, is also provided; it MUST be at most 255 bytes long.
+    /// The return value is `Ok` for a valid signature and `Err` otherwise.
     ///
     /// Note: this function is not constant-time; it assumes that the
     /// public key and signature value are public data.
@@ -297,7 +297,7 @@ impl VerifyingKey {
         ctx: &[u8],
         m: &[u8],
     ) -> Result<(), Error> {
-        // `signature` should already be valid but check to make sure
+        // `signature` should already be valid, but check to make sure.
         // Note that the scalar itself uses only 56 bytes; the extra
         // 57th byte must be 0x00.
         if signature.s[56] != 0x00 {

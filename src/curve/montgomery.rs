@@ -17,7 +17,7 @@ use core::fmt;
 use core::ops::Mul;
 use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
-// Low order points on Curve448 and it's twist
+// Low-order points on Curve448 and its twist.
 const LOW_A: MontgomeryPoint = MontgomeryPoint([
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -116,19 +116,19 @@ impl MontgomeryPoint {
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ]);
 
-    /// Convert this point to an [`EdwardsPoint`]
+    /// Convert this point to an [`EdwardsPoint`].
     pub fn to_edwards(&self, _sign: u8) -> Option<EdwardsPoint> {
-        // We use the 4-isogeny to map to the Ed448.
-        // This is different to Curve25519, where we use a birational map.
+        // We use the 4-isogeny to map to the Ed448 curve.
+        // This differs from Curve25519, where we use a birational map.
         todo!()
     }
 
-    /// Returns true if the point is one of the low order points
+    /// Returns `true` if the point is one of the low-order points.
     pub fn is_low_order(&self) -> bool {
         (*self == LOW_A) || (*self == LOW_B) || (*self == LOW_C)
     }
 
-    /// View the point as a byte slice
+    /// View the point as a byte slice.
     pub fn as_bytes(&self) -> &[u8; 56] {
         &self.0
     }
@@ -231,7 +231,7 @@ mod tests {
         let montgomery_bp = bp.to_montgomery();
         let montgomery_res = &montgomery_bp * &scalar;
 
-        // Goldilocks scalar mul
+        // Goldilocks scalar multiplication.
         let goldilocks_point = bp.scalar_mul(&scalar);
         assert_eq!(goldilocks_point.to_montgomery(), montgomery_res);
     }

@@ -80,7 +80,7 @@ impl ExtendedPoint {
         self.to_extensible().add_extended(other).to_extended()
     }
 
-    /// Converts an ExtendedPoint to an ExtensiblePoint
+    /// Converts an `ExtendedPoint` to an `ExtensiblePoint`.
     pub fn to_extensible(self) -> ExtensiblePoint {
         ExtensiblePoint {
             X: self.X,
@@ -91,11 +91,11 @@ impl ExtendedPoint {
         }
     }
 
-    /// Converts an extended point to Affine co-ordinates
+    /// Converts an extended point to affine coordinates.
     pub(crate) fn to_affine(self) -> AffinePoint {
         // Points to consider:
-        // - All points where Z=0, translate to (0,0)
-        // - The identity point has z=1, so it is not a problem
+        // - All points where Z = 0 translate to (0, 0).
+        // - The identity point has Z = 1, so it is not a problem.
 
         let INV_Z = self.Z.invert();
 
@@ -105,16 +105,16 @@ impl ExtendedPoint {
         AffinePoint { x, y }
     }
 
-    /// Edwards_Isogeny is derived from the doubling formula
-    /// XXX: There is a duplicate method in the twisted edwards module to compute the dual isogeny
+    /// The Edwards isogeny is derived from the doubling formula.
+    /// XXX: There is a duplicate method in the Edwards module to compute the dual isogeny.
     fn edwards_isogeny(&self, a: FieldElement) -> EdwardsExtendedPoint {
         // Projective 2-isogeny. With x = X/Z and y = Y/Z the affine image is
         //   x' = 2xy / (y^2 - a*x^2)
         //   y' = (y^2 + a*x^2) / (2 - y^2 - a*x^2)
         // Clearing the shared Z^2 factor from every numerator/denominator lets us
         // emit a valid projective extended point WITHOUT any field inversion (the
-        // previous version performed three inversions per call). Inversion-free and
-        // value-independent, so constant-time behaviour is unchanged.
+        // previous version performed three inversions per call). The result is inversion-free and
+        // value-independent, so constant-time behavior is unchanged.
         let XX = self.X.square();
         let YY = self.Y.square();
         let ZZ = self.Z.square();
@@ -133,12 +133,12 @@ impl ExtendedPoint {
         }
     }
 
-    /// Uses a 2-isogeny to map the point to the Ed448-Goldilocks
+    /// Uses a 2-isogeny to map the point to the Ed448-Goldilocks curve.
     pub fn to_untwisted(self) -> EdwardsExtendedPoint {
         self.edwards_isogeny(FieldElement::MINUS_ONE)
     }
 
-    /// Checks if the point is on the curve
+    /// Checks whether the point is on the curve.
     pub(crate) fn is_on_curve(&self) -> Choice {
         let XY = self.X * self.Y;
         let ZT = self.Z * self.T;
@@ -203,11 +203,10 @@ mod tests {
 
     #[test]
     fn test_is_on_curve() {
-        // The twisted edwards basepoint should be on the curve
-        // twisted edwards curve
+        // The twisted Edwards basepoint should be on the twisted Edwards curve.
         assert_eq!(TWISTED_EDWARDS_BASE_POINT.is_on_curve().unwrap_u8(), 1u8);
 
-        // The goldilocks basepoint should not be
+        // The Goldilocks basepoint should not be.
         let invalid_point = ExtendedPoint {
             X: GOLDILOCKS_BASE_POINT.X,
             Y: GOLDILOCKS_BASE_POINT.Y,

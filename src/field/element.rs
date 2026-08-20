@@ -274,9 +274,9 @@ impl FieldElement {
         Self(self.0.add(&self.0))
     }
 
-    /// Computes the inverse square root of a field element
-    /// Returns the result and a boolean to indicate whether self
-    /// was a Quadratic residue
+    /// Computes the inverse square root of a field element.
+    /// Returns the result and a boolean indicating whether `self`
+    /// was a quadratic residue.
     pub(crate) fn inverse_square_root(&self) -> (FieldElement, Choice) {
         let (mut l0, mut l1, mut l2);
 
@@ -311,19 +311,19 @@ impl FieldElement {
         (l1, is_residue)
     }
 
-    /// Computes the square root ratio of two elements
+    /// Computes the square-root ratio of two elements.
     pub(crate) fn sqrt_ratio(u: &FieldElement, v: &FieldElement) -> (FieldElement, Choice) {
         // Compute sqrt(1/(uv))
         let x = *u * v;
         let (inv_sqrt_x, is_res) = x.inverse_square_root();
         // Return u * sqrt(1/(uv)) == sqrt(u/v). However, since this trick only works
-        // for u != 0, check for that case explicitly (when u == 0 then inv_sqrt_x
-        // will be zero, which is what we want, but is_res will be 0)
+        // for u != 0, check for that case explicitly. When u == 0, inv_sqrt_x
+        // will be zero, which is what we want, but is_res will be 0.
         let zero_u = u.ct_eq(&FieldElement::ZERO);
         (inv_sqrt_x * u, zero_u | is_res)
     }
 
-    /// Computes the square root ratio of two elements
+    /// Computes the square-root ratio of two elements.
     ///
     /// The difference between this and `sqrt_ratio` is that
     /// if the input is non-square, the function returns a result with

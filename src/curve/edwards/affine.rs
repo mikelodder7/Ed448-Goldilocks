@@ -214,7 +214,7 @@ impl AffinePoint {
         }
     }
 
-    /// Convert to edwards extended point
+    /// Converts to an Edwards extended point.
     pub fn to_edwards(&self) -> EdwardsPoint {
         EdwardsPoint {
             X: self.x,

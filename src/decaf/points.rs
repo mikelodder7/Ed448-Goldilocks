@@ -343,22 +343,22 @@ impl DecafPoint {
     /// The identity point
     pub const IDENTITY: DecafPoint = DecafPoint(ExtendedPoint::IDENTITY);
 
-    /// Check if the point is the identity
+    /// Checks whether the point is the identity.
     pub fn is_identity(&self) -> Choice {
         ConstantTimeEq::ct_eq(self, &DecafPoint::IDENTITY)
     }
 
-    /// Add two points
+    /// Adds two points.
     pub fn add(&self, other: &DecafPoint) -> DecafPoint {
         DecafPoint(self.0.to_extensible().add_extended(&other.0).to_extended())
     }
 
-    /// Subtract two points
+    /// Subtracts two points.
     pub fn sub(&self, other: &DecafPoint) -> DecafPoint {
         DecafPoint(self.0.to_extensible().sub_extended(&other.0).to_extended())
     }
 
-    /// Compress this point
+    /// Compresses this point.
     pub fn compress(&self) -> CompressedDecaf {
         let X = self.0.X;
         // let Y = self.0.Y;
@@ -392,9 +392,9 @@ impl DecafPoint {
 
     /// Construct a `DecafPoint` using `ExpandMsg`.
     ///
-    /// This function is similar to `hash_to_curve` in the IETF draft
-    /// where an expand_message function can be chosen and a domain
-    /// separation tag.
+    /// This function is similar to `hash_to_curve` in the IETF draft,
+    /// where an `expand_message` function and a domain-separation tag
+    /// can be chosen.
     pub fn hash<X>(msg: &[u8], dst: &[u8]) -> Self
     where
         X: ExpandMsg<U28>,
@@ -423,10 +423,10 @@ impl DecafPoint {
     /// point will be uniformly distributed over the group, and its
     /// discrete log with respect to other points is unknown.
     ///
-    /// Implements map to curve according
-    /// see <https://datatracker.ietf.org/doc/rfc9380/>
-    /// section 5.3.4 by splitting the input into two 56-byte halves,
-    /// then applies the decaf448_map to each, and adds the results.
+    /// Implements the map-to-curve operation from
+    /// [RFC 9380, Section 5.3.4](https://datatracker.ietf.org/doc/rfc9380/)
+    /// by splitting the input into two 56-byte halves, applying `decaf448_map`
+    /// to each half, and adding the results.
     pub fn from_uniform_bytes(bytes: &[u8; 112]) -> Self {
         let lo: [u8; 56] = (&bytes[..56])
             .try_into()
@@ -443,7 +443,7 @@ impl DecafPoint {
     }
 }
 
-/// A compressed decaf point
+/// A compressed Decaf point.
 #[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
 pub struct CompressedDecaf(pub DecafPointBytes);
@@ -591,22 +591,23 @@ impl<'de> serdect::serde::Deserialize<'de> for CompressedDecaf {
 impl zeroize::DefaultIsZeroes for CompressedDecaf {}
 
 impl CompressedDecaf {
-    /// The compressed generator point
+    /// The compressed generator point.
     pub const GENERATOR: Self = Self([
         102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 102,
         102, 102, 102, 102, 102, 102, 102, 102, 102, 102, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51,
         51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51, 51,
     ]);
-    /// The compressed identity point
+    /// The compressed identity point.
     pub const IDENTITY: Self = Self([0u8; 56]);
 
-    /// Decompress a point if it is valid
+    /// Decompresses a point if it is valid.
     pub fn decompress(&self) -> CtOption<DecafPoint> {
         let s = FieldElement::from_bytes(&self.0);
-        //XX: Check for canonical encoding and sign,
-        // Copied this check from Dalek: The From_bytes function does not throw an error, if the bytes exceed the prime.
-        // However, to_bytes reduces the Field element before serialising
-        // So we can use to_bytes -> from_bytes and if the representations are the same, then the element was already in reduced form
+        // XXX: Check for canonical encoding and sign.
+        // This check is copied from Dalek: `from_bytes` does not return an error if the bytes
+        // exceed the prime. However, `to_bytes` reduces the field element before serializing.
+        // Therefore, we can round-trip through `to_bytes` and `from_bytes`; if the representations
+        // are the same, then the element was already in reduced form.
         let s_bytes_check = s.to_bytes();
         let s_encoding_is_canonical = ConstantTimeEq::ct_eq(&s_bytes_check[..], &self.0);
         let s_is_negative = s.is_negative();

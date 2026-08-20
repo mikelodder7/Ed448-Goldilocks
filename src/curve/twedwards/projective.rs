@@ -10,7 +10,7 @@ impl Default for ProjectiveNielsPoint {
     }
 }
 
-// Its a variant of Niels, where a Z coordinate is added for unmixed readdition
+// It's a variant of Niels in which a Z coordinate is added for unmixed re-addition.
 // ((y+x)/2, (y-x)/2, dxy, Z)
 #[derive(Copy, Clone)]
 pub struct ProjectiveNielsPoint {

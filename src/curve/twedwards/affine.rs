@@ -5,12 +5,12 @@ use subtle::{Choice, ConditionallySelectable};
 
 /// This point representation is not a part of the API.
 ///
-/// AffinePoint is mainly used as a convenience struct.
+/// `AffinePoint` is mainly used as a convenience struct.
 /// XXX: Initially, I wanted to leave some of these in the library to help
-/// others learn. So if you are scrubbing the commit history. Hopefully they were helpful.
+/// others learn. If you are scrubbing the commit history, I hope they were helpful.
 ///
-/// Represents an AffinePoint on the Twisted Edwards Curve
-/// with Equation y^2 - x^2 = 1 - (TWISTED_D) * x^2 * y^2
+/// Represents an `AffinePoint` on the twisted Edwards curve
+/// with equation y^2 - x^2 = 1 - (TWISTED_D) * x^2 * y^2.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct AffinePoint {
     pub(crate) x: FieldElement,
@@ -30,7 +30,7 @@ impl AffinePoint {
         y: FieldElement::ONE,
     };
 
-    /// Checks if the AffinePoint is on the TwistedEdwards curve
+    /// Checks whether the `AffinePoint` is on the twisted Edwards curve.
     fn is_on_curve(&self) -> bool {
         let xx = self.x.square();
         let yy = self.y.square();
@@ -38,7 +38,7 @@ impl AffinePoint {
         yy - xx == FieldElement::ONE + (FieldElement::TWISTED_D * xx * yy)
     }
 
-    // Negates an AffinePoint
+    // Negates an `AffinePoint`.
     pub(crate) fn negate(&self) -> AffinePoint {
         AffinePoint {
             x: -self.x,
@@ -46,7 +46,7 @@ impl AffinePoint {
         }
     }
 
-    /// Adds an AffinePoint onto an AffinePoint
+    /// Adds an `AffinePoint` to another `AffinePoint`.
     pub(crate) fn add(&self, other: &AffinePoint) -> AffinePoint {
         let y_numerator = self.y * other.y + self.x * other.x;
         let y_denominator =
@@ -61,7 +61,7 @@ impl AffinePoint {
         AffinePoint { x, y }
     }
 
-    /// Converts an AffinePoint to an ExtensiblePoint
+    /// Converts an `AffinePoint` to an `ExtensiblePoint`.
     pub(crate) fn to_extensible(self) -> ExtensiblePoint {
         ExtensiblePoint {
             X: self.x,
@@ -80,13 +80,13 @@ impl AffinePoint {
     //         td: self.x * self.y * FieldElement::TWISTED_D,
     //     }
     // }
-    /// Converts an An AffinePoint to an ExtendedPoint
+    /// Converts an `AffinePoint` to an `ExtendedPoint`.
     pub(crate) fn to_extended(self) -> ExtendedPoint {
         self.to_extensible().to_extended()
     }
 }
 
-/// Represents a PreComputed or Cached AffinePoint
+/// Represents a precomputed or cached `AffinePoint`.
 ///  ((y+x)/2, (y-x)/2, dxy)
 #[derive(Copy, Clone)]
 pub struct AffineNielsPoint {
@@ -106,22 +106,22 @@ impl ConditionallySelectable for AffineNielsPoint {
 }
 
 impl AffineNielsPoint {
-    /// Returns the identity element for an AffineNielsPoint
+    /// Returns the identity element for an `AffineNielsPoint`.
     pub(crate) const IDENTITY: AffineNielsPoint = AffineNielsPoint {
         y_plus_x: FieldElement::ONE,
         y_minus_x: FieldElement::ONE,
         td: FieldElement::ZERO,
     };
 
-    /// Checks if two AffineNielsPoints are equal
-    /// Returns true if they are
+    /// Checks whether two `AffineNielsPoint`s are equal.
+    /// Returns `true` if they are.
     pub(crate) fn equals(&self, other: &AffineNielsPoint) -> bool {
         (self.y_minus_x == other.y_minus_x)
             && (self.y_plus_x == other.y_plus_x)
             && (self.td == other.td)
     }
 
-    /// Converts an AffineNielsPoint to an ExtendedPoint
+    /// Converts an `AffineNielsPoint` to an `ExtendedPoint`.
     pub(crate) fn to_extended(self) -> ExtendedPoint {
         ExtendedPoint {
             X: self.y_plus_x - self.y_minus_x,
