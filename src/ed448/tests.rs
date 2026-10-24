@@ -1,4 +1,4 @@
-use super::{KEYPAIR_LENGTH, SIGNATURE_LENGTH, SigningKey, VerifyingKey};
+use super::{KEYPAIR_LENGTH, SIGNATURE_LENGTH, Signature, SigningKey, VerifyingKey};
 use crate::ed448::{PreHasherXof, SecretKey};
 use shake::{
     Shake256,
@@ -94,4 +94,68 @@ fn signs_and_verifies_prehash_with_context_through_ed448_module() {
             .is_ok()
     );
     assert!(verifying_key.verify_raw(&signature, &prehash).is_err());
+}
+
+#[test]
+fn wycheproof_ed448_unused_bits_in_r() {
+    // Wycheproof ed448_test.json (testvectors_v1): tcId 1 is valid, tcIds 63, 64 and 65 set a
+    // bit among bits 448 to 454 of R and are invalid.
+    use hex_literal::hex;
+
+    let public_key = hex!(
+        "419610a534af127f583b04818cdb7f0ff300b025f2e01682bcae33fd691cee03"
+        "9511df0cddc690ee978426e8b38e50ce5af7dcfba50f704c00"
+    );
+    let invalid_message = hex!("313233343030");
+    let cases: [(&[u8], [u8; SIGNATURE_LENGTH], bool); 4] = [
+        (
+            &[],
+            hex!(
+                "cf7953007666e12f73af9ec92e3e018da5ee5a8d5b17f5100a354c58f1d5f4bb"
+                "37ab835c52f72374c72d612689149cf6d36a70db6dc5a6c400b597348e0e31e5"
+                "1e65bb144e63c892a367b4c055c036aa6cd7e728cdd2a098963bda863903e6dd"
+                "025b5a5d891209f4e28537694804e50b0800"
+            ),
+            true,
+        ),
+        (
+            &invalid_message,
+            hex!(
+                "5db94c53101f521f6c1f43b60ea4d7e06fbd49c2e8afaf4fcc289e645e0880a8"
+                "7b8e55858df4cf2291a7303ffda446b82a117b4dd408cff2811adf92201088e0"
+                "51ee48b57aecf46edfc68e5baeed5ae4910ba5681d370f75ab593811e18293ef"
+                "0808581c254196bcbf2b4c454136a6711b00"
+            ),
+            false,
+        ),
+        (
+            &invalid_message,
+            hex!(
+                "5db94c53101f521f6c1f43b60ea4d7e06fbd49c2e8afaf4fcc289e645e0880a8"
+                "7b8e55858df4cf2291a7303ffda446b82a117b4dd408cff2825e06c3999e8308"
+                "be439c40940b0075d3e4f65147c1608cbe6e9c432e33bed6686f9393ae2568f0"
+                "ad60febcb4b6179c0d90d034e7c3c4681000"
+            ),
+            false,
+        ),
+        (
+            &invalid_message,
+            hex!(
+                "5db94c53101f521f6c1f43b60ea4d7e06fbd49c2e8afaf4fcc289e645e0880a8"
+                "7b8e55858df4cf2291a7303ffda446b82a117b4dd408cff2c02456bbd141df04"
+                "8dbf1843be6d5fef402483314c2af547b361a09f3319489eaede43404df9faf6"
+                "34c1298d678b5261c808b0be3726013e3900"
+            ),
+            false,
+        ),
+    ];
+
+    let verifying_key = VerifyingKey::from_bytes(&public_key).expect("valid public key");
+    for (message, signature, valid) in cases {
+        // `Signature::from_bytes` decodes R, so an invalid R is refused at parse or at verify.
+        let accepted = Signature::from_bytes(&signature)
+            .ok()
+            .is_some_and(|signature| verifying_key.verify_raw(&signature, message).is_ok());
+        assert_eq!(accepted, valid);
+    }
 }

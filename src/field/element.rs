@@ -9,7 +9,10 @@ use elliptic_curve::{
     },
     ops::Reduce,
 };
-use subtle::{Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq};
+use subtle::{
+    Choice, ConditionallyNegatable, ConditionallySelectable, ConstantTimeEq, ConstantTimeLess,
+    CtOption,
+};
 
 #[cfg(feature = "zeroize")]
 use zeroize::DefaultIsZeroes;
@@ -268,6 +271,16 @@ impl FieldElement {
 
     pub fn from_bytes(bytes: &[u8; 56]) -> Self {
         Self(ResidueType::new(&U448::from_le_slice(bytes)))
+    }
+
+    /// Decodes 56 little-endian bytes, returning `None` if the value is not less than the modulus.
+    pub(crate) fn from_bytes_canonical(bytes: &[u8; 56]) -> CtOption<Self> {
+        const P: U448 = U448::from_be_hex(
+            "fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        );
+        let value = U448::from_le_slice(bytes);
+        let is_canonical = ConstantTimeLess::ct_lt(&value, &P);
+        CtOption::new(Self(ResidueType::new(&value)), is_canonical)
     }
 
     pub fn double(&self) -> Self {
